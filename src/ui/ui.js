@@ -860,7 +860,8 @@ export class UI {
     let sel = 0, locked = false;
     const kEls = ['f', 'a'].map((k, i) => {
       const d = el('div', 'knob');
-      d.onclick = () => { sel = i; render(); };
+      // tap/click the left half to lower, right half to raise
+      d.onclick = (e) => { sel = i; const r = d.getBoundingClientRect(); adj(e.clientX < r.left + r.width / 2 ? -1 : 1); };
       d.onwheel = (e) => { sel = i; adj(e.deltaY < 0 ? 1 : -1); };
       knobs.appendChild(d);
       return d;

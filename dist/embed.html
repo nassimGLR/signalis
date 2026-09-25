@@ -1,8 +1,3 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LETHE-7</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -347,8 +342,6 @@ body.touching #ammo { bottom: auto; top: 60px; }
   .items-pane { grid-template-columns: 1fr; }
 }
 </style>
-</head>
-<body>
 <canvas id="view"></canvas>
 <div id="ui">
   <div id="hud">
@@ -4866,5 +4859,3 @@ LOADED ${ct.loaded}/8 \xB7 RESERVE ${q.count("ammo")}`),F.appendChild(rt("div","
       <button class="t-btn" data-code="KeyR">RLD</button>
     </div>`,document.getElementById("ui").appendChild(t);let e=()=>{document.body.classList.add("touching")};window.addEventListener("touchstart",e,{passive:!0,once:!0}),window.matchMedia&&window.matchMedia("(pointer: coarse)").matches&&e();for(let d of t.querySelectorAll(".t-btn")){let u=d.dataset.code,m=x=>{x.preventDefault(),d.classList.add("on"),n.virtualDown(u),d.dataset.hold||setTimeout(()=>{n.virtualUp(u),d.classList.remove("on")},90)},g=x=>{x.preventDefault(),d.dataset.hold&&(n.virtualUp(u),d.classList.remove("on"))};d.addEventListener("touchstart",m,{passive:!1}),d.addEventListener("touchend",g,{passive:!1}),d.addEventListener("touchcancel",g,{passive:!1})}let i=t.querySelector(".t-stick"),s=t.querySelector(".t-ring"),r=t.querySelector(".t-knob"),a=null,o=0,l=0,c=46;i.addEventListener("touchstart",d=>{d.preventDefault();let u=d.changedTouches[0];a=u.identifier,o=u.clientX,l=u.clientY;let m=i.getBoundingClientRect();s.style.left=o-m.left+"px",s.style.top=l-m.top+"px",s.classList.add("on")},{passive:!1}),i.addEventListener("touchmove",d=>{d.preventDefault();for(let u of d.changedTouches){if(u.identifier!==a)continue;let m=u.clientX-o,g=u.clientY-l,x=Math.hypot(m,g);x>c&&(m=m/x*c,g=g/x*c),r.style.transform=`translate(${m}px, ${g}px)`;let f=Math.hypot(m,g)/c;n.touchMove=f>.15?{x:m/c,y:g/c}:null}},{passive:!1});let h=d=>{for(let u of d.changedTouches)u.identifier===a&&(a=null,n.touchMove=null,r.style.transform="",s.classList.remove("on"))};i.addEventListener("touchend",h),i.addEventListener("touchcancel",h)}var Fc=new Wo;td(Fc.input);window.__game=Fc;Fc.start();})();
 </script>
-</body>
-</html>

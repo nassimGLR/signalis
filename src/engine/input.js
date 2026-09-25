@@ -37,6 +37,14 @@ export class Input {
     window.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  // On-screen touch controls press keys through these.
+  virtualDown(code) {
+    if (!this.keys.has(code)) this.pressed.add(code);
+    this.keys.add(code);
+    this.lastDevice = 'touch';
+  }
+  virtualUp(code) { this.keys.delete(code); }
+
   pollPad() {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     this.pad = null;
@@ -72,6 +80,7 @@ export class Input {
     if (this.down('KeyS', 'ArrowDown')) y += 1;
     if (this.down('KeyA', 'ArrowLeft')) x -= 1;
     if (this.down('KeyD', 'ArrowRight')) x += 1;
+    if (this.touchMove) { x += this.touchMove.x; y += this.touchMove.y; }
     if (this.pad) {
       const ax = this.pad.axes;
       if (Math.hypot(ax[0], ax[1]) > 0.2) { x += ax[0]; y += ax[1]; }

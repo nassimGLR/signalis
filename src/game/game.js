@@ -94,7 +94,8 @@ export class Game {
       await this.wait(0.4);
       await this.ui.say(EXAMINE.wake, 'WREN');
       this.ui.toast('Objective: <b>find out who woke you</b>');
-      this.ui.toast('<b>WASD</b> move · <b>SHIFT</b> run · <b>E</b> interact · <b>TAB</b> inventory');
+      if (document.body.classList.contains('touching')) this.ui.toast('<b>STICK</b> move · <b>ACT</b> interact · <b>AIM</b> + <b>FIRE</b> to shoot');
+      else this.ui.toast('<b>WASD</b> move · <b>SHIFT</b> run · <b>E</b> interact · <b>TAB</b> inventory');
     });
   }
 
@@ -434,7 +435,8 @@ export class Game {
     if (snap) this.camTarget.copy(look);
     else this.camTarget.lerp(look, Math.min(1, dt * 3.2));
     const pitch = THREE.MathUtils.degToRad(58);
-    const dist = 14.5;
+    // pull back on narrow (portrait) screens so rooms still fit across
+    const dist = 14.5 * Math.min(1.9, Math.max(1, 1.15 / this.camera.aspect));
     this.camera.position.set(
       this.camTarget.x,
       this.camTarget.y + Math.sin(pitch) * dist,

@@ -15,6 +15,14 @@ async function assemble(result) {
   await mkdir('dist', { recursive: true });
   await writeFile('dist/index.html', html);
   console.log(`[build] dist/index.html  ${(html.length / 1024).toFixed(0)} KB`);
+  // Embeddable variant: page content only (the host supplies doctype/head/body).
+  const embed = html
+    .replace(/<!doctype html>\s*/i, '')
+    .replace(/<html[^>]*>\s*/i, '').replace(/<\/html>\s*/i, '')
+    .replace(/<head>\s*/i, '').replace(/<\/head>\s*/i, '')
+    .replace(/<body>\s*/i, '').replace(/<\/body>\s*/i, '')
+    .replace(/<meta charset[^>]*>\s*/i, '').replace(/<meta name="viewport"[^>]*>\s*/i, '');
+  await writeFile('dist/embed.html', embed);
 }
 
 const options = {

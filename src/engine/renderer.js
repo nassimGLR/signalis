@@ -211,8 +211,9 @@ export class Renderer {
     this.canvas.style.width = w + 'px';
     this.canvas.style.height = h + 'px';
     const aspect = w / h;
-    this.lowH = this.lowHeight;
-    this.lowW = Math.round(this.lowHeight * aspect);
+    // the low-res buffer's short side is `lowHeight` pixels (portrait screens too)
+    if (aspect >= 1) { this.lowH = this.lowHeight; this.lowW = Math.round(this.lowHeight * aspect); }
+    else { this.lowW = this.lowHeight; this.lowH = Math.round(this.lowHeight / aspect); }
     this.target.setSize(this.lowW, this.lowH);
     this.post.uniforms.uLowRes.value.set(this.lowW, this.lowH);
     this.post.uniforms.uOutRes.value.set(w, h);
