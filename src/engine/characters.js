@@ -35,10 +35,12 @@ const BI = Object.fromEntries(BONES.map((n, i) => [n, i]));
 
 // ------------------------------------------------------------------ palette
 const C = {
-  suit: 0x33373b, suitDark: 0x25282b, suitLight: 0x3d4247, glove: 0x1e1f22,
-  skin: 0xd9cfc4, skinShade: 0xc6b8aa,
+  // slate work coverall (not a dark dress uniform)
+  suit: 0x3b4845, suitDark: 0x2c3634, suitLight: 0x485753, glove: 0x1e1f22,
+  skin: 0xe0cdbd, skinShade: 0xcbb5a4,
   hair: 0x7a4632, hairHi: 0x94583f, hairDeep: 0x4b281d,
-  yoke: 0xc7bfae, band: 0xa3161f, belt: 0x4a3c30, beltDark: 0x3a2f26,
+  // band: hazard-yellow reflective work band; warn: the Hollows' red markings
+  yoke: 0xc7bfae, band: 0xd4a93a, bandStripe: 0x2a2622, warn: 0xa3161f, belt: 0x4a3c30, beltDark: 0x3a2f26,
   boot: 0x16171a, sole: 0x0a0a0b, bone: 0xd9d2c2, metal: 0x8a8578, lamp: 0x3b3e42,
   gun: 0x26282c, gunHi: 0x50555b,
   // hollows: pale oxidised chassis and face plate against dark shredded cloth
@@ -114,10 +116,10 @@ function atlas() {
     for (let y = 5; y < 13; y++) {
       for (let x = 0; x < 32; x++) {
         const s = Math.floor((y - 5 + Math.abs((x % 12) - 6)) / 3) % 2;
-        f(x, y, s ? C.band : C.bone);
+        f(x, y, s ? C.warn : C.bone);
       }
     }
-    f(3, 22, 9, 4, C.band); f(14, 22, 3, 4, C.bone);
+    f(3, 22, 9, 4, C.warn); f(14, 22, 3, 4, C.bone);
     for (let i = 0; i < 30; i++) f(Math.floor(rnd() * 32), 26 + Math.floor(rnd() * 6), 0x5a3a2a); // rust
   });
   // rib lines (horizontal), lamp lens, service-plate pips
@@ -142,20 +144,17 @@ function atlas() {
     rect(dif, px, py, pw, ph, C.bone);
     rect(dif, px + 1, py + 3, 2, 2, 0x6fc3c9); rect(dif, px + 5, py + 3, 2, 2, 0x6fc3c9);
     rect(emi, px + 1, py + 3, 2, 2, 0x3c8a90); rect(emi, px + 5, py + 3, 2, 2, 0x3c8a90);
-    // WREN-3's sleeve band: a red service band with bone piping and her unit
-    // number "W3" in white on the outer side (a service tag, no emblem).
+    // WREN-3's sleeve band: a hazard-yellow reflective work band with dark
+    // diagonal safety stripes (a maintenance hi-vis band, no emblem).
     // u runs around the arm (outer side at the centre), v top → bottom.
     const [bx, by, bw, bh] = RECT.band;
     rect(dif, bx, by, bw, bh, C.band);
-    rect(dif, bx, by, bw, 1, C.yoke); rect(dif, bx, by + bh - 1, bw, 1, C.yoke);
-    const glyphs = [
-      '#...#.###',
-      '#.#.#...#',
-      '#.#.#..##',
-      '.#.#..###',
-    ];
-    const gx = bx + Math.round(bw / 2) - 4;
-    glyphs.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] === '#') put(dif, gx + i, by + 2 + j, 0xf2ece0); });
+    for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
+      if (((i + j) % 6) < 2) put(dif, bx + i, by + j, C.bandStripe);
+    }
+    rect(dif, bx, by, bw, 1, C.bandStripe); rect(dif, bx, by + bh - 1, bw, 1, C.bandStripe);
+    // faint retro-reflective glint so it catches the flashlight
+    rect(emi, bx, by + 1, bw, 1, 0x2a2410);
   }
   _atlas = { map: dif.texture(), emissive: emi.texture() };
   return _atlas;
