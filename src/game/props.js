@@ -51,6 +51,8 @@ function mesh(geo, material, x = 0, y = 0, z = 0, cast = true) {
 }
 const B = (w, h, d, material, x, y, z, cast) => mesh(new THREE.BoxGeometry(w, h, d), material, x, y, z, cast);
 const C = (r, h, material, x, y, z, seg = 8) => mesh(new THREE.CylinderGeometry(r, r, h, seg), material, x, y, z);
+// Screens and labels are planes: a thin box would smear its texture over its edges.
+const P = (w, h, material, x, y, z) => mesh(new THREE.PlaneGeometry(w, h), material, x, y, z, false);
 
 // Screen material — MeshBasic so it glows in the dark.
 function screenMat(lines, color, seed) {
@@ -147,7 +149,7 @@ export const BUILDERS = {
   terminal(p) {
     const g = new THREE.Group();
     g.add(B(0.5, 0.36, 0.36, M.metalLight(), 0, 0.2, 0));
-    const scr = B(0.4, 0.28, 0.02, screenMat(p.lines || [], p.color || [110, 230, 200], 3), 0, 0.22, 0.19, false);
+    const scr = P(0.4, 0.28, screenMat(p.lines || [], p.color || [110, 230, 200], 3), 0, 0.22, 0.185);
     g.add(scr);
     g.add(B(0.5, 0.04, 0.22, M.metalDark(), 0, 0.02, 0.32));
     place(g, p);
@@ -290,7 +292,7 @@ export const BUILDERS = {
     g.add(B(1.22, 0.04, 0.58, M.metal(), 0, 0.87, 0, false));
     // upright back panel with the screen and meters
     g.add(B(1.2, 0.72, 0.14, M.metal(), 0, 1.24, -0.21));
-    const screen = B(0.5, 0.25, 0.02, lam('deckReady', () => new THREE.MeshBasicMaterial({ map: Tex.deckScreen('ready') })), -0.26, 1.34, -0.13, false);
+    const screen = P(0.5, 0.25, lam('deckReady', () => new THREE.MeshBasicMaterial({ map: Tex.deckScreen('ready') })), -0.26, 1.34, -0.137);
     g.add(screen);
     for (let i = 0; i < 2; i++) {
       g.add(B(0.16, 0.1, 0.02, M.black(), 0.16 + i * 0.2, 1.36, -0.13, false));
@@ -535,7 +537,7 @@ export const BUILDERS = {
         const x = -0.9 + i * 0.9, y = 1.1 + row * 0.55;
         g.add(B(0.8, 0.5, 0.35, M.metalDark(), x, y, -0.05));
         const lines = k === 4 ? ['CAM 07', 'OBS DECK', '1 FIGURE'] : k === 1 ? ['CAM 02', 'NO SIGNAL'] : [];
-        const scr = B(0.68, 0.4, 0.01, screenMat(lines, k === 4 ? [255, 90, 80] : [120, 255, 160], seeds[k]), x, y, 0.13, false);
+        const scr = P(0.68, 0.4, screenMat(lines, k === 4 ? [255, 90, 80] : [120, 255, 160], seeds[k]), x, y, 0.128);
         g.add(scr);
         k++;
       }
@@ -673,9 +675,9 @@ export const BUILDERS = {
     deck.rotation.x = 0.35;
     g.add(deck);
     g.add(B(3.4, 2.2, 0.3, M.metal(), 0, 1.6, -0.35));
-    const big = B(1.6, 0.9, 0.02, lam('commsScreen', () => new THREE.MeshBasicMaterial({ map: Tex.screen(['BEACON: LOOP', 'SRC: OSTROV.M', 'CYCLE 10002'], [255, 70, 60], 12) })), 0, 1.75, -0.19, false);
+    const big = P(1.6, 0.9, lam('commsScreen', () => new THREE.MeshBasicMaterial({ map: Tex.screen(['BEACON: LOOP', 'SRC: OSTROV.M', 'CYCLE 10002'], [255, 70, 60], 12) })), 0, 1.75, -0.195);
     g.add(big);
-    for (const x of [-1.3, 1.3]) g.add(B(0.6, 0.6, 0.02, screenMat([], [255, 70, 60], x > 0 ? 13 : 14), x, 1.6, -0.19, false));
+    for (const x of [-1.3, 1.3]) g.add(P(0.6, 0.6, screenMat([], [255, 70, 60], x > 0 ? 13 : 14), x, 1.6, -0.195));
     for (let i = 0; i < 10; i++) g.add(B(0.12, 0.03, 0.1, i % 3 ? M.black() : M.emissiveRed(), -1.2 + i * 0.27, 1.02, 0.3, false));
     place(g, p);
     return { obj: g, colliders: [footprint(p.x, p.z + 0.1, 3.4, 1.1, p.r)], parts: { screen: big } };

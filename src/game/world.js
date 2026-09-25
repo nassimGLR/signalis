@@ -361,7 +361,7 @@ export class World {
   // north or side wall within reach, or null (south walls are cut away).
   wallMount(room, x, z) {
     const opts = [
-      { d: z - room.z0, x, z: room.z0 + 0.07, rot: 0 },
+      { d: room.window ? Infinity : z - room.z0, x, z: room.z0 + 0.07, rot: 0 },
       { d: x - room.x0, x: room.x0 + 0.07, z, rot: Math.PI / 2 },
       { d: room.x1 + 1 - x, x: room.x1 + 1 - 0.07, z, rot: -Math.PI / 2 },
     ];

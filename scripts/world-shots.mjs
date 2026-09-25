@@ -100,8 +100,9 @@ await g((res) => {
       tx = (x1 - x0) < 2 * hx ? (x0 + x1) / 2 : Math.max(x0 + hx - 1, Math.min(x1 - hx + 1, tx));
       tz = (z1 - z0) < 2 * hz ? (z0 + z1) / 2 : Math.max(z0 + hz - 1, Math.min(z1 - hz + 1, tz));
     }
-    cam.position.set(tx, Math.sin(pitch) * dist, tz + Math.cos(pitch) * dist);
-    cam.lookAt(tx, 0, tz);
+    const ty = o.target && o.target[2] ? o.target[2] : 0;
+    cam.position.set(tx, ty + Math.sin(pitch) * dist, tz + Math.cos(pitch) * dist);
+    cam.lookAt(tx, ty, tz);
     if (this.scene && this.scene.fog) { this.scene.fog.near = dist + 4; this.scene.fog.far = dist + 20; }
   };
 }, RES);
@@ -241,6 +242,7 @@ for (const [name, x, z, yaw, o] of SPOTS) {
 if (DETAILS) {
   const CLOSE = [
     ['detail-backup-deck', 'C', 10.0, 22.4, [10.0, 21.2], 6.5, 48],
+    ['detail-deck-writing', 'C', 11.4, 22.8, [10.0, 20.4, 1.05], 3.6, 34, true],
     ['detail-locker', 'C', 8.6, 22.4, [8.3, 21.0], 6.0, 48],
     ['detail-plan', 'G', 28.4, 31.4, [28.4, 30.3], 6.0, 40],
     ['detail-posters', 'G', 26.5, 31.2, [27.0, 30.4], 8.0, 45],
@@ -248,17 +250,26 @@ if (DETAILS) {
     ['detail-door', 'G', 22.4, 31.4, [22.5, 29.8], 6.0, 42],
     ['detail-deck2', 'N', 51.5, 38.6, [51.2, 37.2], 6.5, 48],
   ];
-  for (const [name, room, x, z, tgt, dist, pitch] of CLOSE) {
+  for (const [name, room, x, z, tgt, dist, pitch, spin] of CLOSE) {
     if (ONLY && !ONLY.includes(name)) continue;
-    await g(([x, z, tgt, dist, pitch]) => {
+    await g(([x, z, tgt, dist, pitch, spin]) => {
       const G = window.__game;
       G.__shotCam.target = tgt; G.__shotCam.dist = dist; G.__shotCam.pitch = pitch;
       G.debugTeleport(x, z, Math.PI);
-    }, [x, z, tgt, dist, pitch]);
+      if (spin && G.world.spinReels) G.world.spinReels(6);
+    }, [x, z, tgt, dist, pitch, !!spin]);
     await sleep(1200);
     await drain();
     await page.screenshot({ path: `${out}/world-${name}.png` });
     console.log(`shot world-${name}.png`);
+    if (spin) {
+      const st = await g(() => {
+        const p = window.__game.world.parts('C', 'backupDeck');
+        return { writing: p.screen.material === p.screenWrite, reel: p.reelR.rotation.y };
+      });
+      if (st.writing && Math.abs(st.reel) > 1) pass('backup-deck-spin', `screen WRITING, take-up reel turned ${st.reel.toFixed(1)} rad`);
+      else fail('backup-deck-spin', JSON.stringify(st));
+    }
   }
   await g(() => { const G = window.__game; G.__shotCam.target = null; G.__shotCam.dist = 17.5; G.__shotCam.pitch = 62; });
 }
