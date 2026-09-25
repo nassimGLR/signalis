@@ -148,7 +148,9 @@ function renderGame(rig, lines, yaw) {
   const spot = game.userData.spot;
   spot.visible = rig.kind === 'custodian'; // the flashlight is Wren's
   const fx = Math.sin(yaw), fz = Math.cos(yaw);
-  spot.position.set(fx * 0.15, 1.45, fz * 0.15);
+  // flashlight from the harness lamp (as stream C wires it), aimed 5 m ahead
+  rig.root.updateMatrixWorld(true);
+  if (rig.lamp) rig.lamp.getWorldPosition(spot.position); else spot.position.set(fx * 0.15, 1.45, fz * 0.15);
   spot.target.position.set(fx * 5, 0, fz * 5);
   const pitch = 62 * PI / 180, dist = 17.5;
   camG.position.set(0, Math.sin(pitch) * dist, Math.cos(pitch) * dist);
@@ -275,7 +277,8 @@ window.wrenSheet = async () => {
     strip.forEach(([name, yaw, s], i) => {
       poseWren(rig, { s });
       const src = renderGame(rig, lines, yaw);
-      drawCell(g, gameCell(src, crop, scale, 0), i * gw, y0, gw, gw, name);
+      const c2 = name === 'DEAD' ? Math.round(crop * 1.4) : crop;
+      drawCell(g, gameCell(src, c2, scale * crop / c2, 0), i * gw, y0, gw, gw, name);
     });
     y0 += gw + 24;
   }
