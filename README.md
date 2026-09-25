@@ -85,6 +85,42 @@ The mouse drives everything; the keyboard and a gamepad are full equivalents.
   or stow the weapon, INSPECT anything (drag to turn it, TURN OVER to see the
   back), and DISCARD what you no longer need (key items and memories stay).
 
+### Hollows, tools and the receiver
+
+- **Downed is not dead.** A Hollow you shoot down lies twitching with a faint
+  pulse in its chest core, and gets back up (with less fight in it) 18–30
+  seconds later. Its clock only runs while you are in its room or can see into
+  it. Stand over the body and **FINISH** it (F, or click it: a stomp, free).
+  A finished body is usually done, but one in two keeps that faint pulse and
+  rises again, much later. A **CAUTERY FLARE** laid on a body burns it to ash,
+  and ash never rises.
+- **Hits stagger.** Most hits make a Hollow flinch, which breaks a swing still
+  winding up (not one already coming down). A critical hit from a settled
+  focus box knocks it flat for three seconds: finish it there.
+- **They hear you.** Walking is quiet, running carries about 7 m, a shot about
+  14 m, a door about 5 m; half as far through a doorway, and not at all out of a
+  quiet room. A standing Hollow that hears something walks over to look; a
+  slumped one close enough gets up. One that sees you (in front of it, or right
+  beside it) stiffens for a moment, then comes, and follows you through doors.
+  Out of sight for eight seconds, it gives up and searches.
+- **Not all the same.** The lean **Rusher** springs at you from a few metres
+  away. The **Warden** carries a torn bulkhead plate that soaks most of any shot
+  from the front: flank it, catch it after it swings, or shock it down.
+- **Tools** go in the TOOL clip (EQUIP in the inventory) and are used with C,
+  Mouse 4 or LB. The **ARC PRONG** knocks everything within arm's reach flat.
+  The **CAUTERY FLARE** burns a body at your feet to ash, or sets a Hollow in
+  reach alight. The aim readout shows how many you have left.
+- **Healing.** Sealant spray restores integrity as it sets, over eight
+  seconds; a nanite ampoule restores it at once. Crossing into CRITICAL flashes
+  INTEGRITY FAILURE IMMINENT.
+- **The receiver.** A receiver module in Security clips onto Wren's harness.
+  T or a middle click switches it on (a small RX readout appears top right); the
+  wheel or Q / E tunes her maintenance band, 20–200 kHz (while it is on, E
+  tunes, F interacts). Somewhere on it a flat voice loops a set of numbers;
+  the Overseer left messages; the array calls from the east. The RECEIVER tab
+  in the inventory has a dial, a waterfall and a decoder. Below 40 kHz is the
+  Undertone: don't listen to it, and don't let the Hollows hear you listening.
+
 ### The screen
 
 There is no permanent HUD: no room name, no ammo counter, no objective text.
@@ -129,11 +165,15 @@ and a carrier wave) and one ending. A full run takes about 20–30 minutes.
   animation: planted-foot walk and run, head look, aim, reload, reach, stomp,
   hurt, four condition postures and a death fall (`src/engine/characters.js`).
   The Hollows have their own corrupted designs and a pose for every state.
+- **Hollows:** a small state machine per unit (`src/game/enemy.js`): sight
+  cones, hearing from the game's noise events, investigate and search, a
+  notice beat, chase with A* through doors (the controls' nav grid), stagger,
+  knockdown, the Rusher's lunge and the Warden's plate, and the revive
+  economy (clock, core tell, finish, burn). The receiver is `src/game/radio.js`.
 - **Controls:** mouse-first movement with A* pathing (`src/game/nav.js`),
   hover brackets, the focus box and the state cursor (`src/game/controls.js`,
   `src/ui/cursor.js`).
-- **Interface:** the Custodian OS (items, map, files; the receiver tab waits
-  for its module), device-face
+- **Interface:** the Custodian OS (items, map, files, receiver), device-face
   puzzles, the locker, and the text box (`src/ui/ui.js`). Items are small 3D
   models (`src/ui/items3d.js`) rendered for the inventory and placed in the
   world as pickups.
@@ -180,9 +220,10 @@ upstream Google Fonts files.
 ```bash
 node scripts/shot.mjs basic  # boots, starts a game, checks for errors
 node scripts/shot.mjs full   # tours every room, opens inventory/files/map
-node scripts/shot.mjs play   # keyboard playthrough (F interacts, J fires) to the ending
+node scripts/shot.mjs play   # keyboard playthrough to the ending: fights, finishes, tools; checks the ammo left
 node scripts/shot.mjs mouse  # click-to-go, hold-walk, click-to-use, doors, aim/focus, cursor
 node scripts/shot.mjs touch  # phone-sized: tap to go, tap to use
+node scripts/shot.mjs mech   # revive, finish, burn, stagger, noise, variants, tools, receiver, save
 node scripts/ui-shots.mjs    # every screen by mouse, at 1280×720 and 412×860
 node scripts/world-shots.mjs --native-cam   # per-room luma, post effects, props
 node scripts/rig-sheet.mjs   # character pose sheets and rig checks

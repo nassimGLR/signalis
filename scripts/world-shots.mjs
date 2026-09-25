@@ -260,7 +260,8 @@ for (const [name, x, z, yaw, o] of SPOTS) {
   // is the named Hollow actually on screen?
   const inFrame = o.glitchCheck ? await g((id) => {
     const G = window.__game, e = G.enemies.find((q) => q.id === id);
-    if (!e || !e.active) return false;
+    // on screen and actually drawn (a Hollow's rig is hidden while its room is off screen)
+    if (!e || !e.active || !e.rig.root.visible) return false;
     const v = e.pos.clone ? e.pos.clone() : null;
     if (!v) return false;
     v.y = 0.8; v.project(G.camera);

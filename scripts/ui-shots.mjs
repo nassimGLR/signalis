@@ -240,12 +240,13 @@ async function desktop() {
   check('self-model renders (lit rig)', selfPx > 400, `opaque px ${selfPx}`);
   check('condition word is IMPAIRED at 58 hp', await g(() => document.querySelector('.cond-word').textContent === 'IMPAIRED'), 'wrong condition word');
 
-  // click sealant slot, then USE → hp rises
+  // click sealant slot, then USE → hp rises (the sealant sets over 8 s of
+  // play, plan §7.2, so while the OS is open the heal is queued, not applied)
   const hp0 = await g(() => window.__game.player.hp);
   await click('.slot:nth-child(3)');
   await click('.act', 'USE');
-  const hp1 = await g(() => window.__game.player.hp);
-  check('mouse: select sealant + USE raises hp', hp1 > hp0, `hp ${hp0} → ${hp1}`, `hp ${hp0} → ${hp1}`);
+  const h1 = await g(() => { const P = window.__game.player; return { hp: P.hp, pending: (P.heals || []).reduce((n, h) => n + h.left, 0) }; });
+  check('mouse: select sealant + USE heals (+40 over 8 s)', h1.hp > hp0 || h1.pending >= 39, `hp ${hp0} → ${h1.hp}, pending ${h1.pending}`);
   // drag ammo onto the pistol → reload (or the failure text)
   const l0 = await g(() => window.__game.inv.slots[0].loaded);
   const a = await at('.slot:nth-child(2)'), b = await at('.slot:nth-child(1)');

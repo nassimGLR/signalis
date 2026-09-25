@@ -1,20 +1,41 @@
 // Item definitions and the six-slot inventory.
+//
+// kind: weapon | ammo | heal | key | memory | tool. Optional fields the
+// Custodian OS reads: `mag` (magazine size), `inspect` (a detail found on
+// TURN OVER). Healing: `heal` hit points, over `hot` seconds (0 = at once).
+// Tools are equipped in the OS and used with C / Mouse 4 / pad LB:
+//   prong — ARC PRONG: knocks every Hollow within `radius` flat (finishable).
+//   flare — CAUTERY FLARE: burns a body on the floor within `radius` to ash
+//           (it never gets up), or sets a Hollow in reach alight.
 export const ITEMS = {
   pistol: {
-    name: 'P-17 SIDEARM', kind: 'weapon', stack: 1,
+    name: 'P-17 SIDEARM', kind: 'weapon', stack: 1, mag: 8,
     desc: 'Standard custodian sidearm, issued during the evacuation drills. Holds 8 rounds. Heavier than it looks.',
+    inspect: 'Serial filed off. Someone scratched a tally into the grip: eleven marks.',
   },
   ammo: {
     name: 'PISTOL ROUNDS', kind: 'ammo', stack: 24,
     desc: '9×19 caseless rounds for the P-17. Count them. Always count them.',
   },
   sealant: {
-    name: 'SEALANT SPRAY', kind: 'heal', heal: 40, stack: 3,
-    desc: 'Polymer sealant for hull breaches and chassis damage. Restores some integrity. It stings, if I let it.',
+    name: 'SEALANT SPRAY', kind: 'heal', heal: 40, hot: 8, stack: 3,
+    desc: 'Polymer sealant for hull breaches and chassis damage. Restores some integrity as it sets, over a few seconds. It stings, if I let it.',
+    inspect: 'SHAKE WELL. DO NOT APPLY TO OPTICS. The nozzle is crusted grey.',
   },
   nanite: {
     name: 'NANITE AMPOULE', kind: 'heal', heal: 100, stack: 1,
-    desc: 'A glass ampoule of repair nanites. Fully restores integrity. Medical keeps — kept — these locked away.',
+    desc: 'A glass ampoule of repair nanites. Fully restores integrity, at once. Medical keeps — kept — these locked away.',
+    inspect: 'The seal is stamped with a lot number and a date eleven hundred cycles gone.',
+  },
+  prong: {
+    name: 'ARC PRONG', kind: 'tool', stack: 4, radius: 1.8,
+    desc: 'A single-use discharge prong for clearing jammed relays. Anything standing close enough goes down. Get to them before they get up.',
+    inspect: 'Two copper tines, a thumb trigger, a cartridge the size of a finger. HOLD AWAY FROM BODY.',
+  },
+  flare: {
+    name: 'CAUTERY FLARE', kind: 'tool', stack: 3, radius: 1.5, damage: 45,
+    desc: 'A magnesium flare for sealing coolant lines. Laid on a fallen Hollow it burns it down to nothing, and nothing gets up. It will light one in reach, too.',
+    inspect: 'STRIKE CAP · BURN TIME 3 s. Someone has written on the tube in marker: FOR THE ONES THAT KEEP COUNTING.',
   },
   keycard: {
     name: 'SECURITY KEYCARD', kind: 'key', stack: 1,
@@ -107,6 +128,12 @@ export class Inventory {
   }
 
   weapon() { return this.slots.find((s) => s && s.id === 'pistol') || null; }
+
+  // All carried rounds, loaded plus loose (the economy check reads this).
+  rounds() {
+    const w = this.weapon();
+    return this.count('ammo') + (w ? w.loaded || 0 : 0);
+  }
 
   addFile(id) {
     if (!this.files.includes(id)) { this.files.push(id); return true; }

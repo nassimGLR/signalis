@@ -242,6 +242,57 @@ export const EXAMINE = {
   plan_02: ['A sector plan. CENTRAL CONCOURSE.', 'Crew quarters and security to the north. Mess and medical to the south.'],
   plan_03: ['A sector plan. EAST WING.', 'Observation, archive, a second quiet room. The corridor runs north to the array.'],
   plan_04: ['A sector plan. ARRAY.', 'One room. Everything on this deck was built to feed it.'],
+  // mechanics (D2)
+  receiver: ['A receiver module in a charging cradle. It clips onto my harness.', 'The dial is marked in the station band. Below forty, someone has scored it with a red line.'],
+  prong: ['An arc prong. One charge, then it\'s scrap.'],
+  flare: ['A cautery flare. Whatever it touches stays down.'],
+  rx_numbers: ['Numbers. The same four, over and over.', 'Seven, three, zero, four.'],
+  rx_undertone: ['That isn\'t static. It\'s counting.', 'I should turn it off.'],
+};
+
+// The receiver (radio.js): stations on Wren's maintenance band, 20–200 kHz.
+// `text` is what the RECEIVER tab decodes; `lines` play once in the text box
+// the first time she locks on in play (who: 'M' for the Overseer).
+export const RADIO = {
+  numbers: {
+    label: 'RELAY LOOP',
+    text: 'RELAY ROTATION 88 · 7 · 3 · 0 · 4 · REPEAT · 7 · 3 · 0 · 4 · END OF LOOP',
+  },
+  fragA: {
+    f: 58.5,
+    label: 'OSTROV · MAINTENANCE BAND',
+    text: 'OSTROV, MAINTENANCE BAND. I HAVE STOPPED DATING THESE. THE RELAY ROOM IS ON THE NEW ROTATION — VARGA\'S BOARD HAS IT, AND THE LOOP READS IT OUT FOR ANYONE WHO LOST THE BOARD. KEEP THE DIAL ABOVE FORTY.',
+    lines: [
+      { who: 'M', t: 'Ostrov, on the maintenance band. I\'ve stopped dating these.' },
+      { who: 'M', t: 'The relay room is on the new rotation. Varga\'s board has it, and the loop reads it out for anyone who lost the board.' },
+      { who: 'M', t: 'Keep the dial above forty. If you hear counting, you\'ve gone too low.' },
+    ],
+  },
+  fragB: {
+    f: 173,
+    label: 'OSTROV · PERSONAL',
+    text: 'WREN. IF THIS REACHES YOU, YOU ARE AWAKE AND I AM NOT THERE TO SAY GOOD MORNING. THE ROOMS THAT COUNT WILL ASK YOU TO SIT DOWN WITH THEM. DON\'T. WALK EAST. THE ARRAY WILL BE SINGING IN MY VOICE.',
+    lines: [
+      { who: 'M', t: 'Wren. If this reaches you, you\'re awake, and I\'m not there to say good morning.' },
+      { who: 'M', t: 'I\'m sorry about the cold.' },
+      { who: 'M', t: 'The rooms that count will ask you to sit down with them. Don\'t. Walk east.' },
+      { who: 'M', t: 'The array will be singing in my voice.' },
+    ],
+  },
+  beacon: {
+    f: 196.5,
+    label: 'ARRAY BEACON',
+    text: '... WREN ... FOLLOW THIS ... IT\'S ME ... WREN ... FOLLOW THIS ...',
+    lines: [
+      { who: 'M', t: 'Wren. Follow this. It\'s me.' },
+      { who: 'M', t: 'Wren.' },
+    ],
+  },
+  undertone: {
+    f: 31,
+    label: 'UNDERTONE',
+    text: '... ONE ... TWO ... PUT IT DOWN ... WE WILL CARRY IT ... ONE ... TWO ... SIT WITH US ...',
+  },
 };
 
 // Memory sequences (flashbacks). Each has an illustration key and lines.

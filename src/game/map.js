@@ -309,45 +309,76 @@ export const PROPS = [
   { room: 'M', t: 'planTerminal', x: 44.3, z: 1.04, r: 0, sector: '04' },
 ];
 
-// Pickups. kind 'item' goes to inventory; kind 'file' goes to the archive.
+// Pickups. kind 'item' goes to inventory; kind 'file' goes to the archive;
+// `module` is clipped to the harness (the receiver) and takes no slot.
+//
+// Economy (plan §7.2, D2): 25 rounds lie on the critical path (8 loaded +
+// B 4, H 4, J 5, I 4) against seven Hollows there, at ~2–3 rounds a kill
+// with a settled focus box and a stomp to finish (a crit knockdown plus a
+// stomp costs one; a prong plus a stomp costs none). The keyboard route in
+// `shot.mjs play` fights five of them, prongs the Warden, sneaks past the
+// archive one, and ends with about 7–11. Side rooms (E, K south, F) hold a
+// little more, for the fights they hold. Flares (burn a body for good) sit
+// in both quiet rooms, Security and the archive; prongs in the relay room
+// and medical.
 export const PICKUPS = [
   { id: 'p_sealant_A', room: 'A', x: 4.2, z: 42.7, y: 0.8, item: 'sealant', qty: 1 },
   { id: 'p_note_A', room: 'A', x: 5.0, z: 42.6, y: 0.8, file: 'directive' },
-  { id: 'p_ammo_B', room: 'B', x: 15.3, z: 44.6, item: 'ammo', qty: 6 },
+  { id: 'p_ammo_B', room: 'B', x: 15.3, z: 44.6, item: 'ammo', qty: 4 },
   { id: 'p_note_C', room: 'C', x: 12.3, z: 21.2, y: 0.62, file: 'quiet' },
-  { id: 'p_ammo_J', room: 'J', x: 12.2, z: 28.8, y: 0.8, item: 'ammo', qty: 8 },
+  { id: 'p_flare_C', room: 'C', x: 9.2, z: 24.9, item: 'flare', qty: 1 },
+  { id: 'p_ammo_J', room: 'J', x: 12.2, z: 28.8, y: 0.8, item: 'ammo', qty: 5 },
+  { id: 'p_prong_J', room: 'J', x: 6.4, z: 32.7, item: 'prong', qty: 2 },
   { id: 'p_sealant_G', room: 'G', x: 42.5, z: 30.6, item: 'sealant', qty: 1 },
   { id: 'p_photo_D', room: 'D', x: 22.3, z: 23.4, y: 0.55, item: 'photo', qty: 1 },
   { id: 'p_letter_D', room: 'D', x: 21.2, z: 26.4, y: 0.78, file: 'letter' },
   { id: 'p_bulletin_H', room: 'H', x: 32.2, z: 22.8, y: 0.8, file: 'bulletin' },
-  { id: 'p_ammo_H', room: 'H', x: 36.3, z: 28.3, y: 0.72, item: 'ammo', qty: 10 },
-  { id: 'p_ammo_E', room: 'E', x: 28.4, z: 34.6, y: 1.0, item: 'ammo', qty: 8 },
+  { id: 'p_rx_H', room: 'H', x: 34.2, z: 22.75, y: 0.8, module: 'receiver' },
+  { id: 'p_ammo_H', room: 'H', x: 36.3, z: 28.3, y: 0.72, item: 'ammo', qty: 4 },
+  { id: 'p_flare_H', room: 'H', x: 36.0, z: 24.4, item: 'flare', qty: 1 },
+  { id: 'p_ammo_E', room: 'E', x: 28.4, z: 34.6, y: 1.0, item: 'ammo', qty: 6 },
   { id: 'p_nanite_E', room: 'E', x: 28.2, z: 41.3, item: 'nanite', qty: 1 },
   { id: 'p_notice_E', room: 'E', x: 25.2, z: 35.5, y: 0.78, file: 'mess' },
   { id: 'p_nanite_F', room: 'F', x: 35, z: 33.7, y: 1.0, item: 'nanite', qty: 1 },
   { id: 'p_sealant_F', room: 'F', x: 36, z: 33.7, y: 1.0, item: 'sealant', qty: 2 },
+  { id: 'p_prong_F', room: 'F', x: 33.3, z: 38.6, item: 'prong', qty: 1 },
   { id: 'p_medlog_F', room: 'F', x: 37.6, z: 38.4, y: 0.8, file: 'medical' },
-  { id: 'p_ammo_K', room: 'K', x: 46.5, z: 43.6, y: 0.82, item: 'ammo', qty: 8 },
+  { id: 'p_ammo_K', room: 'K', x: 46.5, z: 43.6, y: 0.82, item: 'ammo', qty: 6 },
   { id: 'p_obslog_L', room: 'L', x: 57, z: 19.4, y: 0.5, file: 'observation' },
   { id: 'p_book_I', room: 'I', x: 50.1, z: 32.7, y: 0.4, file: 'lethe' },
   { id: 'p_journal_I', room: 'I', x: 54.0, z: 31.1, y: 0.8, file: 'final' },
   { id: 'p_obol_I', room: 'I', x: 53.1, z: 31.3, y: 0.8, item: 'obol', qty: 1 },
-  { id: 'p_ammo_I', room: 'I', x: 56.5, z: 25.6, item: 'ammo', qty: 6 },
+  { id: 'p_ammo_I', room: 'I', x: 56.5, z: 25.6, item: 'ammo', qty: 4 },
+  { id: 'p_flare_I', room: 'I', x: 55.6, z: 32.6, item: 'flare', qty: 1 },
   { id: 'p_sealant_N', room: 'N', x: 53.5, z: 36.6, item: 'sealant', qty: 1 },
+  { id: 'p_flare_N', room: 'N', x: 50.8, z: 39.6, item: 'flare', qty: 1 },
 ];
 
-// Hollows. state: 'dormant' (slumped, wakes when you come near) | 'idle'.
-// spawn: 'power' → only appears once power is restored.
+// Hollows. state: 'dormant' (slumped, wakes when you come near or make a
+// noise close by) | 'idle' (stands; sees in a cone, hears footsteps and
+// shots). spawn: 'power' → only appears once power is restored. wake: sight
+// radius for a dormant one (0 = only a script wakes it). variant: 0–2 are
+// Lurchers in three tones; 'rusher' lunges; 'warden' carries a plate.
+//
+// Pacing (plan §7.1): small groups in the concourse (G) and the mess (E);
+// the crew quarters (D) and the observation deck (L) are left empty. Every
+// Hollow revives once downed unless it is finished or burned.
 export const ENEMIES = [
+  // concourse: one slumped by the medical door, one standing facing the wall
+  // further east; a fight with the first one brings the second
   { id: 'e_G1', room: 'G', x: 38.5, z: 31.4, rot: 0, state: 'dormant', wake: 5.5 },
+  { id: 'e_G2', room: 'G', x: 43.4, z: 30.55, rot: 2, state: 'idle', variant: 2 },
+  // mess: a group of three, a Rusher by the counter
   { id: 'e_E1', room: 'E', x: 26.5, z: 39.5, rot: 2, state: 'idle', variant: 1 },
   { id: 'e_E2', room: 'E', x: 18.7, z: 40.6, rot: 1, state: 'dormant', wake: 4 },
+  { id: 'e_E3', room: 'E', x: 27.0, z: 36.6, rot: 1, state: 'idle', variant: 'rusher' },
   { id: 'e_H1', room: 'H', x: 35, z: 26.5, rot: 3, state: 'idle', variant: 2 },
   { id: 'e_J1', room: 'J', x: 11.8, z: 33.2, rot: 3, state: 'dormant', wake: 0, spawn: 'power' },
   { id: 'e_F1', room: 'F', x: 37.6, z: 35.2, rot: 3, state: 'dormant', wake: 4, variant: 1 },
-  { id: 'e_K1', room: 'K', x: 46.8, z: 14, rot: 0, state: 'idle', spawn: 'power', variant: 2 },
+  // east corridor: the Warden holds the north end, by the array door
+  { id: 'e_K1', room: 'K', x: 46.8, z: 14, rot: 0, state: 'idle', spawn: 'power', variant: 'warden' },
   { id: 'e_K2', room: 'K', x: 47, z: 36, rot: 0, state: 'idle', spawn: 'power' },
-  { id: 'e_I1', room: 'I', x: 56.8, z: 26.4, rot: 3, state: 'dormant', wake: 4, revive: true },
+  { id: 'e_I1', room: 'I', x: 56.8, z: 26.4, rot: 3, state: 'dormant', wake: 4 },
 ];
 
 // Interactive fixtures (beyond pickups and doors). kind 'save' is the backup

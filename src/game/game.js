@@ -6,10 +6,12 @@ import { audio } from '../engine/audio.js';
 import { Tex } from '../engine/textures.js';
 import { World } from './world.js';
 import { Player } from './player.js';
-import { Enemy } from './enemy.js';
+import { Enemy, HOLLOW } from './enemy.js';
 import { Inventory, ITEMS } from './items.js';
+import { Receiver } from './radio.js';
 import { ROOMS, PICKUPS, ENEMIES, FIXTURES, PLAYER_START, SECTORS } from './map.js';
-import { INTRO, EXAMINE, ENDING } from './story.js';
+import { INTRO, EXAMINE, ENDING, RADIO } from './story.js';
+import { STOMP_IMPACT_T, TOOL_STRIKE_T } from '../engine/characters.js';
 import { UI } from '../ui/ui.js';
 import { buildItemModel } from '../ui/items3d.js';
 import { M } from './props.js';
@@ -42,6 +44,10 @@ const PICKUP_LIFT = 0.28;      // a little self-light so small things read on da
 const FIXTURE_LABEL = { save: 'BACKUP', box: 'LOCKER' };
 // Map ticks once a door has been tried (ui.js draws them).
 const LOCK_STATE = { breaker: 'sealed', power: 'sealed', code: 'locked', keycard: 'item', obol: 'item' };
+// Noise radii in metres (plan §7.2): idle Hollows in range investigate,
+// dormant ones within half of it rise. Through an open doorway, half as far.
+const NOISE = { walk: 2.5, aimWalk: 1.2, run: 7, shot: 14, door: 5, stomp: 4, burn: 3, arc: 5 };
+const FINISH_REACH = 1.2;      // m: FINISH / BURN a body from this close
 
 export class Game {
   constructor() {
@@ -49,7 +55,9 @@ export class Game {
     this.renderer = new Renderer(this.canvas);
     this.input = new Input(this.canvas);
     this.ui = new UI(this.input);
-    this.interactProviders = [() => this.pickupCandidates(), () => this.fixtureCandidates(), () => this.doorCandidates()];
+    // interactables (plan §3.8): pickups, fixtures, doors (controls) and the
+    // bodies of downed Hollows (FINISH / BURN)
+    this.interactProviders = [() => this.pickupCandidates(), () => this.fixtureCandidates(), () => this.doorCandidates(), () => this.hollowCandidates()];
     this.controls = new Controls(this); // mouse-first controls, cursor overlay (workstream C)
     this.camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.5, 80);
     this.renderer.onResize = (a) => { this.camera.aspect = a; this.camera.updateProjectionMatrix(); if (this.titleCam) { this.titleCam.aspect = a; this.titleCam.updateProjectionMatrix(); } };
@@ -73,6 +81,8 @@ export class Game {
     this.hasTool = false;
     this.sectorSeen = {};
     this.equip = {};         // { weapon?, tool? }: item id, null = stowed on purpose, absent = first carried
+    this.mech = null;        // a one-shot mechanic in flight: { kind, action, at, target, applied }
+    this.radio = null;
     this.applySettings(this.ui.settings);
     this.ui.onSettings = (s) => this.applySettings(s);
     this.buildTitleScene();
@@ -101,6 +111,7 @@ export class Game {
 
   async titleLoop() {
     this.mode = 'title';
+    if (this.radio) this.radio.shutdown();
     this.ui.showHud(false);
     audio.setMusic('none');
     audio.setAmbience(0.35);
@@ -153,8 +164,9 @@ export class Game {
     this.ui.toast('BACKUP RESTORED');
   }
 
-  // Save format v2: v1 plus door tries, sector plans and the equipped items.
-  // v1 saves still load (setupLevel fills the gaps).
+  // Save format v2: v1 plus door tries, sector plans, the equipped items,
+  // downed bodies with their revive clocks, and the receiver. v1 saves still
+  // load (setupLevel fills the gaps).
   saveGame() {
     const s = this.state;
     const data = {
@@ -165,7 +177,9 @@ export class Game {
       powered: s.powered,
       taken: [...s.taken],
       doors: Object.fromEntries(Object.values(this.world.doors).map((d) => [d.id, { open: d.open, locked: d.locked }])),
-      enemies: Object.fromEntries(this.enemies.map((e) => [e.id, e.state === 'dead' || (e.state === 'down' && (!e.def.revive || e.revived)) ? 'dead' : e.active ? 'alive' : 'inactive'])),
+      // bodies keep their place and revive clock; ash stays ash (v2)
+      enemies: Object.fromEntries(this.enemies.map((e) => [e.id, e.serialize()])),
+      radio: this.radio ? this.radio.serialize() : null,
       visited: [...s.visited],
       tried: [...s.tried],
       plans: [...s.plans],
@@ -229,15 +243,42 @@ export class Game {
     if (this.state.flags.breaker) { const parts = this.world.parts('A', 'breaker'); if (parts) { parts.lever.rotation.x = -0.6; parts.lamp.material = M.emissiveGreen(); } }
     if (this.state.powered) this.applyRelayVisual();
 
-    // enemies
+    // enemies: v2 saves keep bodies where they fell, with their revive clock
+    // (and ash stays ash); v1 saves only know dead / alive / inactive
     this.enemies = ENEMIES.map((def) => {
       const e = new Enemy(scene, def);
-      const st = save && save.enemies[def.id];
-      if (st === 'dead') e.kill();
-      else if (st === 'alive' && def.spawn) e.activate();
-      else if (!save && def.spawn && this.state.powered) e.activate();
+      const st = save && save.enemies ? save.enemies[def.id] : undefined;
+      if (st !== undefined && st !== null) {
+        e.restore(st);
+        const rr = this.world.roomAt(e.pos.x, e.pos.z);
+        if (rr) e.room = rr;
+      } else if (def.spawn && this.state.powered) e.activate();
+      e.onHitPlayer = () => { this.damageFlash = 1; this.shake = 0.35; this.glitchPulse = 0.8; };
       return e;
     });
+    this.enemyCtx = {
+      game: this,
+      get nav() { return this.game.controls.world === this.game.world ? this.game.controls.nav : null; },
+      playerRoom: null,
+      openDoor: (d) => this.hollowOpensDoor(d),
+      embers: (x, y, z, k) => {
+        _ember.set(x + (Math.random() - 0.5) * 0.5, Math.max(0.1, y), z + (Math.random() - 0.5) * 0.5);
+        this.particles.burst(_ember, Math.random() < 0.5 ? 0xff9a30 : 0xffd070, Math.ceil(3 * k), 1.6);
+      },
+    };
+    // noise: footsteps (plan §7.2), and `world.noise` for anything else
+    this.world.noise = (x, z, r) => this.noise(x, z, r);
+    this.player.onStep = (running) => {
+      const P = this.player;
+      this.noise(P.pos.x, P.pos.z, running ? NOISE.run : P.aiming || P.moveSpeed < 1.2 ? NOISE.aimWalk : NOISE.walk);
+    };
+    this.mech = null;
+
+    // the receiver module
+    if (this.radio) this.radio.shutdown();
+    this.radio = new Receiver(this, save && save.radio);
+    if (!this.radio.has && this.state.flags.radio) this.radio.has = true;
+    this.radio.onLock = (st, fromTab) => this.onRadioLock(st, fromTab);
 
     // pickups
     this.pickups = [];
@@ -261,6 +302,7 @@ export class Game {
     this.syncToolClass();
     this.ui.roomName(ROOMS[r].name); // silent: only the pause screen's LOC line reads it
     audio.setMusic(ROOMS[r].safe ? 'quiet' : 'none');
+    this.controls.attach();  // the nav grid, which the Hollows path on too
   }
 
   // World pickups use the same models as the inventory (items3d), scaled up
@@ -275,6 +317,8 @@ export class Game {
       mesh.rotation.x = -Math.PI / 2; mesh.rotation.z = 0.3;
       mesh.position.y = 0.01;
       g.add(mesh);
+    } else if (p.module) {
+      g.add(buildReceiverModule());
     } else {
       const model = buildItemModel(p.item);
       const holder = new THREE.Group();
@@ -370,12 +414,14 @@ export class Game {
 
   // world keeps breathing (lights, doors) while menus are open
   idleUpdate(dt) {
+    for (const e of this.enemies) e.syncVisible(this.world);
     this.world.updateLights(this.time);
     this.world.updateDoors(dt);
     this.updateGlints(dt);
     this.ui.prompt(null);
     this.ui.ammo(false);
     this.controls.paused(dt);
+    this.updateRadio(dt, false); // the RECEIVER tab tunes a live set
   }
 
   update(dt) {
@@ -391,28 +437,36 @@ export class Game {
     if (input.inventory && !P.dead) { this.openInventory('items'); return; }
     if (input.map && !P.dead) { this.openInventory('map'); return; }
 
+    // the receiver reads Q / E / the wheel first; while it is on, E is its
+    // tuning key and F alone interacts
+    const undertone = this.updateRadio(dt, true);
+
     // controls: mouse walk / click-to-go / use, aim and focus (see controls.js)
     const weapon = this.currentWeapon();
     const cmd = C.update(dt, weapon);
 
+    // tools: C / Mouse 4 / pad LB (the effect lands on the strike frame)
+    if (input.tool && !P.dead) this.useTool();
+
     const room = this.state.currentRoom;
     const surface = { plate: 'plate', grate: 'grate', carpet: 'carpet', tile: 'plate', concrete: 'plate' }[ROOMS[room].floor];
     P.update(dt, { ...cmd, hasWeapon: !!weapon, enemies: this.enemies }, this.world, surface);
+    this.updateMech();
 
     // combat
     if (P.aiming && input.fire) this.fire();
     else if (input.reload && weapon) this.startReload();
 
     // enemies
-    for (const e of this.enemies) {
-      if (!e.onHitPlayer) e.onHitPlayer = () => { this.damageFlash = 1; this.shake = 0.35; this.glitchPulse = 0.8; };
-      e.update(dt, P, this.world, this.enemies);
-    }
+    this.enemyCtx.playerRoom = this.state.currentRoom;
+    for (const e of this.enemies) e.update(dt, P, this.world, this.enemies, this.enemyCtx);
+    this.watchBodies();
 
     // room tracking
     const r = this.world.roomAt(P.pos.x, P.pos.z);
     if (r && r !== this.state.currentRoom) this.enterRoom(r);
     this.world.updateVisibility(this.state.currentRoom, P.pos.z);
+    for (const e of this.enemies) e.syncVisible(this.world);
     this.world.updateLights(this.time);
     this.world.updateDoors(dt);
     this.updateGlints(dt);
@@ -427,14 +481,15 @@ export class Game {
     // atmosphere
     let threat = 0;
     for (const e of this.enemies) {
-      if (!e.active || !(e.threatening || e.state === 'dormant' || e.state === 'idle')) continue;
+      if (!e.active || !(e.threatening || e.state === 'dormant' || e.state === 'idle' || e.state === 'investigate')) continue;
       const d = Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z);
-      const w = e.threatening ? 1 : 0.35;
+      const w = e.threatening ? 1 : e.state === 'investigate' ? 0.55 : 0.35;
       threat = Math.max(threat, Math.max(0, 1 - d / 9) * w);
     }
-    // threat feeds the radio static only; the picture glitches for events
+    // threat feeds the radio static only (with the Undertone, when tuned
+    // there); the picture glitches for events
     this.threat = threat;
-    audio.setStatic(threat);
+    audio.setStatic(Math.max(threat, undertone * 0.8));
     this.clankT -= dt;
     if (this.clankT <= 0) { this.clankT = 10 + Math.random() * 20; if (!ROOMS[room].safe) audio.distantClank(); }
 
@@ -448,6 +503,9 @@ export class Game {
 
     this.updateCamera(dt);
     C.lateUpdate(dt);
+    // the aim readout carries the equipped tool's count under the rounds
+    const ro = C.gameState && C.gameState.readout;
+    if (ro) ro.extra = this.toolReadout();
   }
 
   // Pickup glints: faint (25 %) and only while the item is out of reach.
@@ -490,6 +548,10 @@ export class Game {
         const d = Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z);
         if (d < CHASE_TEAR_R) tear = Math.max(tear, CHASE_TEAR * Math.min(1, (CHASE_TEAR_R - d) / 2));
       }
+    }
+    // the Undertone tears the picture a little too
+    if (this.mode === 'play' && this.radio && this.radio.undertone > 0 && !this.ui.busy) {
+      tear = Math.max(tear, 0.02 + 0.04 * this.radio.undertone * (0.5 + 0.5 * Math.sin(this.time * 7.3)));
     }
     u.uTear.value += (tear - u.uTear.value) * Math.min(1, dt * 8);
     if (u.uTear.value < 0.002) u.uTear.value = 0;
@@ -680,6 +742,7 @@ export class Game {
     w.loaded--;
     P.fireCd = 0.36;
     audio.gunshot();
+    this.noise(P.pos.x, P.pos.z, NOISE.shot);
     P.flashMuzzle(this.camera);
     this.shake = Math.max(this.shake, 0.18);
     this.glitchPulse = Math.max(this.glitchPulse, 0.12);
@@ -700,7 +763,7 @@ export class Game {
       const crit = Math.random() < 0.05 + 0.30 * f * f;
       let dmg = 14 + 12 * f + Math.floor(Math.random() * 4);
       if (crit) { dmg *= 2.2; this.glitchPulse = Math.max(this.glitchPulse, 0.25); }
-      const killed = hit.takeHit(Math.round(dmg), P.yaw, { crit, focus: f });
+      const killed = hit.takeHit(Math.round(dmg), P.yaw + spread, { crit, focus: f, from: { x: P.pos.x, z: P.pos.z } });
       this.particles.burst(end, 0x3a0608, 14, 2.2);
       this.particles.burst(end, 0xff3020, 4, 3);
       if (killed) this.glitchPulse = 0.5;
@@ -853,6 +916,16 @@ export class Game {
       if (isNew && d.file === 'final') await this.ui.say(['The communications array. Whatever she left, it\'s waiting up there.'], 'WREN');
       return;
     }
+    if (d.module === 'receiver') {
+      this.removePickup(p);
+      this.state.flags.radio = true;
+      this.radio.has = true;
+      this.radio.power = true;
+      audio.pickup();
+      await this.ui.say(EXAMINE.receiver, 'WREN');
+      this.hint('receiver', '[T] or middle click switches the receiver · wheel or [Q] [E] tunes · the RECEIVER tab decodes');
+      return;
+    }
     if (!this.inv.canAdd(d.item, 1)) { await this.ui.say(EXAMINE.inv_full, 'WREN'); return; }
     const left = this.inv.add(d.item, d.qty);
     audio.pickup();
@@ -872,7 +945,13 @@ export class Game {
       return;
     }
     if (d.item === 'obol') lines.push('A silver coin with a boat on it. It was left here on purpose.', 'FOR W.');
+    const kind = ITEMS[d.item] && ITEMS[d.item].kind;
+    if (kind === 'tool' && !this.state.flags['seen_' + d.item]) { this.state.flags['seen_' + d.item] = true; lines.push(...EXAMINE[d.item]); }
     await this.ui.say(lines, 'WREN');
+    if (kind === 'tool') {
+      this.hint('tool', 'Tools go in the TOOL clip: EQUIP one in the inventory · [C] or Mouse 4 uses it');
+      if (d.item === 'flare') this.hint('burn', 'A flare laid on a fallen Hollow burns it for good · stand over the body and press [C], or click it');
+    }
   }
 
   stowedLine(id, n = 1) {
@@ -941,6 +1020,7 @@ export class Game {
     tried.set(d.id, 'open');
     this.world.setDoorLamp(d);
     audio.door(true);
+    this.noise(d.x + 0.5, d.z + 0.5, NOISE.door);
   }
 
   // A door unlocked by something she did elsewhere (breaker, main power):
@@ -1091,6 +1171,7 @@ export class Game {
 
   async ending() {
     this.mode = 'cutscene';
+    if (this.radio) this.radio.shutdown();
     audio.radioBurst(1.5);
     this.glitchPulse = 2;
     this.shake = 0.6;
@@ -1119,7 +1200,261 @@ export class Game {
     const r = this.world.roomAt(x, z);
     if (r) { this.state.currentRoom = r; this.state.visited.add(r); }
     this.world.updateVisibility(this.state.currentRoom, z);
+    for (const e of this.enemies) e.syncVisible(this.world);
     this.updateCamera(1, true);
+  }
+
+  // ------------------------------------------------------------------ mechanics (plan §7.2)
+  // Noise: a sound at (x, z) that carries `r` metres in its own room and half
+  // as far through an open doorway. Idle Hollows in range investigate; dormant
+  // ones within half of it rise; a chaser that lost sight learns where she is.
+  noise(x, z, r) {
+    if (!this.enemies || !this.world) return 0;
+    const rooms = new Set();
+    const rm = this.world.roomAt(x, z);
+    if (rm) rooms.add(rm);
+    else { const d = this.world.doorAt(x, z); if (d) { rooms.add(d.a); rooms.add(d.b); } }
+    // the quiet rooms are shielded: nothing in them carries out
+    if (rm && ROOMS[rm] && ROOMS[rm].safe) { this.lastNoise = { x, z, r, t: this.time, heard: 0 }; return 0; }
+    let heard = 0;
+    for (const e of this.enemies) if (e.hear(x, z, r, rooms, this.world)) heard++;
+    this.lastNoise = { x, z, r, t: this.time, heard };
+    return heard;
+  }
+
+  // A Hollow on a path claws a closed (unlocked) door open.
+  hollowOpensDoor(d) {
+    if (d.open || d.locked) return;
+    d.open = true;
+    this.world.setDoorLamp(d);
+    audio.door(true);
+  }
+
+  // Where a body lies: its chest (the root stays at the feet it fell from).
+  bodyPos(e, out = { x: 0, z: 0 }) {
+    const m = e.rig.chest.matrixWorld.elements;
+    out.x = m[12]; out.z = m[14];
+    if (!Number.isFinite(out.x)) { out.x = e.pos.x; out.z = e.pos.z; }
+    return out;
+  }
+
+  // Bodies on the floor: FINISH (red) stomps a downed or knocked-down Hollow
+  // (free); once it is finished, BURN lays a cautery flare on it if she
+  // carries one. (The tool key burns a body straight away: that is a choice.)
+  hollowCandidates() {
+    const vis = this.world.visible, out = [];
+    const flares = this.inv.count('flare');
+    for (const e of this.enemies) {
+      if (!e.burnable) continue;
+      if (vis && !vis.has(e.room)) continue;
+      let label = null;
+      if (e.finishable) label = 'FINISH';
+      else if (flares > 0) label = 'BURN';
+      if (!label) continue;
+      if (!e.cand) e.cand = { id: 'h_' + e.id, kind: 'hollow', enemy: e, room: e.room, x: 0, y: 0.3, z: 0, r: FINISH_REACH, size: 1.0, red: true, action: null, run: () => this.bodyAction(e) };
+      const c = e.cand;
+      this.bodyPos(e, c);
+      c.label = label;
+      c.room = e.room;
+      out.push(c);
+    }
+    return out;
+  }
+
+  bodyAction(e) {
+    const c = e.cand;
+    if (c && c.label === 'BURN' && e.burnable && this.inv.count('flare') > 0) return this.startMech('flare', e);
+    if (e.finishable) return this.startMech('stomp', e);
+    return false;
+  }
+
+  // Start a one-shot: the player's action plays, and the effect lands on its
+  // impact frame (STOMP_IMPACT_T / TOOL_STRIKE_T) in updateMech. A hit that
+  // cuts the action short cancels the effect (and nothing is used up).
+  startMech(kind, target = null) {
+    const P = this.player;
+    if (P.dead || P.action) return false;
+    const action = kind === 'stomp' ? 'stomp' : kind === 'flare' ? 'toolFlare' : 'toolProng';
+    if (target) {
+      const b = this.bodyPos(target);
+      const at = target.alive ? target.pos : b;
+      P.targetYaw = Math.atan2(at.x - P.pos.x, at.z - P.pos.z);
+    }
+    this.controls.cancel();
+    P.playAction(action);
+    this.mech = { kind, action, at: kind === 'stomp' ? STOMP_IMPACT_T : TOOL_STRIKE_T, target, applied: false };
+    return true;
+  }
+
+  updateMech() {
+    const M = this.mech, P = this.player;
+    if (!M) return;
+    if (P.action !== M.action) { this.mech = null; return; }
+    if (M.applied || P.actionT < M.at) return;
+    M.applied = true;
+    if (M.kind === 'stomp') this.applyStomp(M.target);
+    else if (M.kind === 'flare') this.applyFlare(M.target);
+    else this.applyProng();
+  }
+
+  applyStomp(e) {
+    audio.stomp();
+    this.shake = Math.max(this.shake, 0.22);
+    const b = this.bodyPos(e);
+    this.noise(b.x, b.z, NOISE.stomp);
+    if (!e.finishable) return; // it got up, or burned: the boot hits the floor
+    e.finish();
+    this.particles.burst(new THREE.Vector3(b.x, 0.3, b.z), 0x2a0406, 12, 1.8);
+    this.glitchPulse = Math.max(this.glitchPulse, 0.14);
+    this.state.flags.stomped = (this.state.flags.stomped || 0) + 1;
+    if (e.willRevive) this.hint('tell', 'Its core still pulses: it will get up again, later. A CAUTERY FLARE [C] burns a body for good.');
+  }
+
+  applyFlare(e) {
+    const P = this.player;
+    let t = e;
+    const reach = (q) => (q.alive ? Math.hypot(q.pos.x - P.pos.x, q.pos.z - P.pos.z) <= 1.8 : q.burnable && Math.hypot(this.bodyPos(q).x - P.pos.x, this.bodyPos(q).z - P.pos.z) <= ITEMS.flare.radius + 0.5);
+    if (!t || !reach(t)) t = this.flareTarget();
+    if (!t) { audio.click(0, 420, 0.06); return; } // nothing left in reach: the cap stays on
+    if (!this.inv.remove('flare', 1)) return;
+    audio.flare(HOLLOW.burnT);
+    const b = t.alive ? t.pos : this.bodyPos(t);
+    this.noise(b.x, b.z, NOISE.burn);
+    this.particles.burst(new THREE.Vector3(b.x, 0.4, b.z), 0xffa030, 16, 2.2);
+    this.particles.burst(new THREE.Vector3(b.x, 0.4, b.z), 0xfff0c0, 6, 1.4);
+    this.glitchPulse = Math.max(this.glitchPulse, 0.12);
+    if (t.alive) t.ignite(ITEMS.flare.damage, Math.atan2(t.pos.x - P.pos.x, t.pos.z - P.pos.z), { x: P.pos.x, z: P.pos.z });
+    else t.burn();
+    this.state.flags.burned = (this.state.flags.burned || 0) + 1;
+    this.syncToolClass();
+  }
+
+  applyProng() {
+    const P = this.player;
+    if (!this.inv.remove('prong', 1)) return;
+    audio.arc();
+    this.shake = Math.max(this.shake, 0.2);
+    this.glitchPulse = Math.max(this.glitchPulse, 0.3);
+    this.noise(P.pos.x, P.pos.z, NOISE.arc);
+    const at = new THREE.Vector3(P.pos.x + Math.sin(P.yaw) * 0.5, 1.0, P.pos.z + Math.cos(P.yaw) * 0.5);
+    this.particles.burst(at, 0x9fe8ff, 18, 3.2);
+    this.particles.burst(at, 0xffffff, 6, 2);
+    const R = ITEMS.prong.radius + 0.3; // + a body's half-width
+    let n = 0;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      if (Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z) > R) continue;
+      if (e.shock({ x: P.pos.x, z: P.pos.z })) n++;
+    }
+    if (n) this.hint('finish', 'Downed is not dead · stand over the body and [F] FINISH it, or click it');
+    this.syncToolClass();
+  }
+
+  // C / Mouse 4 / pad LB: use the equipped tool.
+  useTool() {
+    const P = this.player;
+    if (P.dead || P.action || P.reloadT > 0) return;
+    const id = this.equippedId('tool');
+    if (!id) { this.controls.cursor.flashNo(); this.hint('no-tool', 'No tool in the TOOL clip · EQUIP one in the inventory [Tab]'); return; }
+    if (id === 'prong') { this.startMech('prong'); return; }
+    if (id === 'flare') {
+      const t = this.flareTarget();
+      if (!t) {
+        this.controls.cursor.flashNo(); audio.click(0, 420, 0.06);
+        this.hint('flare-reach', 'The flare needs a body at her feet, or a Hollow in arm\'s reach');
+        return;
+      }
+      this.startMech('flare', t);
+    }
+  }
+
+  // The flare's target: a standing Hollow in arm's reach ahead (it is the
+  // danger), else the nearest body she stands over.
+  flareTarget() {
+    const P = this.player, fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+    let best = null, bs = Infinity;
+    for (const e of this.enemies) {
+      if (!e.active) continue;
+      let score;
+      if (e.alive) {
+        const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z, d = Math.hypot(dx, dz);
+        if (d > 1.6) continue;
+        if (d > 0.8 && (dx * fx + dz * fz) / d < 0.2) continue;
+        score = d - 2;
+      } else if (e.burnable) {
+        const b = this.bodyPos(e);
+        const d = Math.hypot(b.x - P.pos.x, b.z - P.pos.z);
+        if (d > ITEMS.flare.radius) continue;
+        score = d;
+      } else continue;
+      if (score < bs) { bs = score; best = e; }
+    }
+    return best;
+  }
+
+  equippedId(kind) {
+    const i = this.equippedSlot(kind);
+    return i == null ? null : this.inv.slots[i].id;
+  }
+
+  toolReadout() {
+    const i = this.equippedSlot('tool');
+    if (i == null) return null;
+    const s = this.inv.slots[i];
+    return `${s.id === 'flare' ? 'FLARE' : s.id === 'prong' ? 'PRONG' : 'TOOL'} ×${s.qty}`;
+  }
+
+  // First-time notes as the revive economy shows itself.
+  watchBodies() {
+    const F = this.state.flags;
+    for (const e of this.enemies) {
+      if (!e.active) continue;
+      if (e.state === 'down' && !F.firstDown) { F.firstDown = true; this.hint('finish', 'Downed is not dead · stand over the body and [F] FINISH it, or click it'); }
+      if (e.stats.revives && !F.firstRevive) { F.firstRevive = true; this.hint('revive', 'Bodies left alone get up again while you are near · FINISH them, or burn them'); }
+    }
+  }
+
+  // The receiver: toggled with T / middle click, tuned in radio.js. Returns
+  // the Undertone level (0 unless tuned below 40 kHz).
+  updateRadio(dt, playing) {
+    const R = this.radio, P = this.player, I = this.input;
+    if (!R || !P) return 0;
+    if (playing && R.has && I.modules && !P.dead) R.toggle();
+    const c = this._rxCtx || (this._rxCtx = { playing: false, input: null, sector: '01', pos: null, noise: (x, z, r) => this.noise(x, z, r) });
+    c.playing = playing && !P.dead && this.mode === 'play';
+    c.input = playing ? I : null;
+    c.sector = (ROOMS[this.state.currentRoom] && ROOMS[this.state.currentRoom].sector) || '01';
+    c.pos = P.pos;
+    const u = R.update(dt, c);
+    if (playing && R.has && R.power) I.pressed.delete('KeyE');
+    return u;
+  }
+
+  // A station locked in: the log names it; the first time in play, its voice
+  // (or Wren's reading of it) plays in the text box. Decoded in the tab, it
+  // counts as heard.
+  onRadioLock(st, fromTab) {
+    if (!st) return;
+    const F = this.state.flags, key = 'rx_' + st.id;
+    if (fromTab) { F[key] = true; return; }
+    this.ui.toast(`RX ${st.f.toFixed(1)} kHz — <b>${st.label}</b>`);
+    if (F[key] || this.scripting || this.ui.busy) return; // (busy: it plays next time she tunes in)
+    F[key] = true;
+    if (st.id === 'numbers') this.script(() => this.ui.say(EXAMINE.rx_numbers, 'WREN'));
+    else if (st.id === 'undertone') this.script(() => this.ui.say(EXAMINE.rx_undertone, 'WREN'));
+    else if (RADIO[st.id] && RADIO[st.id].lines) this.script(() => this.ui.say(RADIO[st.id].lines));
+  }
+
+  // Harness: run the Hollows forward `seconds` of game time at once (the
+  // revive checks need minutes). Stops early when `until(game)` is true;
+  // returns the simulated time.
+  debugSim(seconds, { dt = 0.05, until = null } = {}) {
+    this.enemyCtx.playerRoom = this.state.currentRoom;
+    for (let t = 0; t < seconds; t += dt) {
+      for (const e of this.enemies) e.update(dt, this.player, this.world, this.enemies, this.enemyCtx);
+      if (until && until(this)) return t + dt;
+    }
+    return seconds;
   }
 
   // ------------------------------------------------------------------ menus
@@ -1149,6 +1484,7 @@ export class Game {
       combine: (i, j) => this.combineItems(i, j),
       discard: (i) => this.discardItem(i),
       map: { plans: this.state.plans, tried: this.state.tried, markers: this.mapMarkers() },
+      radio: this.radio && this.radio.has ? this.radio : undefined,
       cycle: CYCLE,
     };
   }
@@ -1163,7 +1499,8 @@ export class Game {
         label: 'USE',
         fn: () => {
           if (P.hp >= P.maxHp) { this.ui.toast('INTEGRITY FULL — NOT USED'); return; }
-          P.heal(def.heal);
+          // sealant sets over a few seconds (+40 over 8 s); the ampoule is at once
+          P.heal(def.heal, def.hot || 0);
           this.inv.remove(s.id, 1);
           audio.blip(440, 0.3, 'sine', 0.06); audio.blip(660, 0.4, 'sine', 0.05, 0.12);
           this.ui.toast(`USED — <b>${def.name}</b>`);
@@ -1303,6 +1640,8 @@ export class Game {
   // cuts to hard black for 0.8 s, and then the quiet NO RESPONSE screen.
   startDeath() {
     this.dying = { freeze: 2, split: DEATH_SPLIT, t: 0, black: false, menu: false };
+    this.mech = null;
+    if (this.radio) { this.radio.power = false; this.radio.shutdown(); }
     this.damageFlash = 1;
     this.shake = Math.max(this.shake, 0.3);
     this.cut = null;
@@ -1479,6 +1818,33 @@ class Particles {
     this.tracerLine.visible = this.tracerT > 0;
   }
 }
+
+// The receiver module as it sits in its cradle on the security desk: a dark
+// housing, a teal dial face, a knob and a whip antenna laid back.
+function buildReceiverModule() {
+  const g = new THREE.Group();
+  const housing = new THREE.MeshLambertMaterial({ color: 0x3c4043, emissive: 0x16191b });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.14), housing);
+  body.position.y = 0.045;
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.11, 0.06), new THREE.MeshBasicMaterial({ color: 0x6fc3c9 }));
+  face.rotation.x = -Math.PI / 2;
+  face.position.set(-0.035, 0.0915, 0.005);
+  const needle = new THREE.Mesh(new THREE.PlaneGeometry(0.004, 0.05), new THREE.MeshBasicMaterial({ color: 0xff2a3a }));
+  needle.rotation.x = -Math.PI / 2;
+  needle.position.set(-0.02, 0.092, 0.005);
+  const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.022, 8), new THREE.MeshLambertMaterial({ color: 0xd8d0b8, emissive: 0x2a2824 }));
+  knob.position.set(0.065, 0.1, 0.02);
+  const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.3, 4), new THREE.MeshLambertMaterial({ color: 0xa0a6aa }));
+  ant.rotation.z = Math.PI / 2 - 0.25;
+  ant.position.set(-0.03, 0.12, -0.055);
+  const band = new THREE.Mesh(new THREE.BoxGeometry(0.224, 0.016, 0.144), new THREE.MeshBasicMaterial({ color: 0xc8102e }));
+  band.position.y = 0.02;
+  g.add(body, face, needle, knob, ant, band);
+  g.scale.setScalar(1.5);
+  return g;
+}
+
+const _ember = new THREE.Vector3();
 
 // Stable 0..1 from a string (pickup yaw and glint phase stay put across loads).
 function hash01(str) {
