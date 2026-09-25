@@ -627,8 +627,9 @@ export class UI {
     root.insertBefore(menu.el, $('.t-foot', root));
     // the logo loses signal every 9–14 s for a few frames
     const logo = $('.t-logo', root);
-    let nextTear = 5 + Math.random() * 4, tearFrames = 0;
+    let nextTear = 5 + Math.random() * 4, tearFrames = 0, age = 0;
     modal.update = (input, dt, k) => {
+      age += dt;
       nextTear -= dt;
       if (nextTear <= 0 && !this.settings.reduceFlash) { tearFrames = 3 + (Math.random() < 0.5 ? 1 : 0); nextTear = 9 + Math.random() * 5; audio.click(0, 900 + Math.random() * 600, 0.08); }
       if (tearFrames > 0) {
@@ -639,7 +640,7 @@ export class UI {
         logo.style.setProperty('--dx', ((Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 16)).toFixed(0) + 'px');
         logo.classList.add('tear');
       } else logo.classList.remove('tear');
-      menu.update(k);
+      if (age > 0.3) menu.update(k); // the key that dismissed the boot screen must not pick WAKE
     };
     return this.open(modal);
   }
@@ -1097,7 +1098,8 @@ export class UI {
           slotEls.push(d);
         }
       }
-      const px = slotPx();
+      // thumbnails wait until the row is laid out (then render at half the slot size, 2× upscale)
+      const px = slotEls[0].clientWidth ? slotPx() : 0;
       slotEls.forEach((d, i) => {
         const s = inv.slots[i];
         d.classList.toggle('sel', i === sel);
@@ -1106,7 +1108,7 @@ export class UI {
         d.classList.toggle('equipped', !!s && isEquipped(i));
         const cv = $('.th', d);
         const key = s ? s.id + '@' + px : '';
-        if (cv.dataset.key !== key) {
+        if (px && cv.dataset.key !== key) {
           cv.dataset.key = key;
           cv.width = px; cv.height = px;
           const g = cv.getContext('2d');
