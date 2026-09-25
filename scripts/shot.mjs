@@ -340,6 +340,7 @@ if (scenario === 'mouse') {
   await snap('path');
   const arrived = await until(() => window.__game.ctl.mode === 'idle', 8000);
   const p1 = await P();
+  console.log('arrival error m', Math.hypot(p1.x - dest.x, p1.z - dest.z).toFixed(3));
   check('click-to-go arrives within 0.25 m', arrived && Math.hypot(p1.x - dest.x, p1.z - dest.z) <= 0.25, JSON.stringify(p1));
 
   // T1b: double-click runs there; a click into the dark goes nowhere
@@ -369,10 +370,12 @@ if (scenario === 'mouse') {
   for (let i = 0; i < 6; i++) { samples.push(await P()); await sleep(100); }
   const xs = samples.map((s) => s.x), zs = samples.map((s) => s.z);
   const jitter = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+  console.log(`hold: x=${xs[0].toFixed(3)} jitter=${jitter.toFixed(4)} m over 0.5 s`);
   check('hold stops at the wall without jitter', xs[0] > 12.4 && jitter < 0.02, `x=${xs[0].toFixed(3)} jitter=${jitter.toFixed(4)}`);
   await page.mouse.up();
   await sleep(200);
   const h2 = await P();
+  console.log(`speed 0.2 s after release: ${h2.speed.toFixed(3)}`);
   check('release stops within 0.2 s', h2.speed < 0.05, `speed=${h2.speed.toFixed(3)}`);
 
   // T3a: in reach of the desk: both items bracketed, the act cursor on one
@@ -425,6 +428,7 @@ if (scenario === 'mouse') {
   await page.mouse.down(); await sleep(60); await page.mouse.up();
   const through = await until(() => { const G = window.__game; return G.world.doors.dCB.open && G.state.currentRoom === 'C' && G.ctl.mode === 'idle'; }, 12000);
   const p4 = await P();
+  console.log('after door', JSON.stringify({ x: +p4.x.toFixed(2), z: +p4.z.toFixed(2) }));
   check('door opens and she continues through', through && p4.x < 12.8, JSON.stringify(p4));
   await sleep(500);
   await snap('door');
@@ -442,6 +446,7 @@ if (scenario === 'mouse') {
   const tFocus = await g(() => window.__game.time);
   const c5 = await ctl();
   check('RMB locks the Hollow under the pointer', c5.aim.lockId === 'e_G1', JSON.stringify(c5.aim));
+  console.log(`focus ${c5.aim.focus.toFixed(2)} after ${(tFocus - tPress).toFixed(2)} s game time`);
   check('focus ≥ 0.9 within 1.3 s (game time)', focused && tFocus - tPress <= 1.3, `focus=${c5.aim.focus.toFixed(2)} t=${(tFocus - tPress).toFixed(2)}s`);
   await until(() => window.__game.ctl.aim.focus >= 0.95, 1500);
   await sleep(150);
