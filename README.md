@@ -51,7 +51,9 @@ The mouse drives everything; the keyboard and a gamepad are full equivalents.
 
 - Things within reach get white corner brackets and a verb (TAKE, READ, OPEN…).
   Point at one and click to walk over and use it. A bracket drawn faint with
-  footprints means "out of reach — click to walk there".
+  `»` after its verb means "out of reach — click to walk there". A click is
+  anything shorter than a hold-walk, or a press released within about half a
+  second without moving the pointer.
 - Readying locks onto the Hollow under the pointer (or the nearest one when you
   ready with Space or LT). A box closes around it while you hold steady: a
   closed red box hits harder and more often critically. A cross in the box means
