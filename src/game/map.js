@@ -72,7 +72,7 @@ export const LIGHTS = [
   { room: 'C', x: 8.2, z: 24.8, y: 1.3, color: 0xffd29a, i: 1.1, d: 4.5 },
   { room: 'C', x: 10, z: 21.0, y: 1.3, color: 0x9fe8e0, i: 0.5, d: 2.4 },
   // Relay — red emergency wash with an amber lamp on the relay panel
-  { room: 'J', x: 8, z: 30.2, color: 0xff2a1a, i: 2.4, d: 8, pulse: 0.35, pulseDepth: 0.35, power: 'emergency' },
+  { room: 'J', x: 8, z: 30.2, color: 0xff2a1a, i: 2.9, d: 8.5, pulse: 0.35, pulseDepth: 0.3, power: 'emergency' },
   { room: 'J', x: 8.5, z: 29.0, y: 1.5, color: 0xffb060, i: 0.8, d: 3.2, power: 'emergency', flicker: 0.05 },
   { room: 'J', x: 6, z: 30.5, color: 0xcfe6ff, i: 2.4, d: 8, power: 'main' },
   { room: 'J', x: 11, z: 32, color: 0xcfe6ff, i: 1.8, d: 7, power: 'main', flicker: 0.05 },
