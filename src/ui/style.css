@@ -696,6 +696,7 @@ body.touching, body.touching * { cursor: default; }
 body.has-tool .t-btn.tool { display: block; }
 .t-btn:focus-visible { outline: 1px solid var(--bone); outline-offset: 2px; }
 .t-btn .pz { display: inline-block; width: 8px; height: 10px; border-left: 3px solid currentColor; border-right: 3px solid currentColor; vertical-align: -1px; }
+body.touching .dev-help, body.touching .p-foot .keys, body.touching .ins-acts .keys, body.touching .df-foot .keys { display: none; }
 body.touching #dialog { bottom: calc(110px + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 24px); }
 body.touching #hint { left: 12px; bottom: calc(110px + 104px + env(safe-area-inset-bottom, 0px)); max-width: calc(100vw - 24px); }
 body.touching #prompt { bottom: calc(118px + env(safe-area-inset-bottom, 0px)); }
@@ -785,6 +786,7 @@ body.touching #toasts { left: 12px; top: calc(46px + env(safe-area-inset-top, 0p
   .man-table .m-a { grid-column: 1 / -1; }
   .man-table .mr > div:not(.m-a)::before { content: attr(data-h); display: block; font-family: var(--font-ui); font-size: 9px; font-weight: 800; letter-spacing: 0.26em; color: var(--grey); }
   .man-table .m-p { grid-column: 1 / -1; }
+  .title-screen { background: linear-gradient(0deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.25) 50%, rgba(0,0,0,0.5) 100%); }
   .t-logo-wrap { left: 20px; top: 16vh; right: 20px; }
   .t-logo { font-size: clamp(26px, 9.4vw, 44px); }
   .t-gloss { white-space: normal; flex-wrap: wrap; line-height: 1.8; }

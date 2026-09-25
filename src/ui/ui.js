@@ -195,8 +195,8 @@ class Menu {
 class SelfModel {
   constructor() {
     this.scene = new THREE.Scene();
-    this.scene.add(new THREE.HemisphereLight(0xc9d2d4, 0x16130f, 1.2));
-    const key = new THREE.DirectionalLight(0xfff0dc, 3.4);
+    this.scene.add(new THREE.HemisphereLight(0xc9d2d4, 0x1e1a15, 1.7));
+    const key = new THREE.DirectionalLight(0xfff0dc, 4.0);
     key.position.set(-1.5, 2.4, 2.2);
     this.scene.add(key);
     const rim = new THREE.DirectionalLight(0x9fd6dc, 3.0);
@@ -225,7 +225,8 @@ class SelfModel {
     safe(() => poseCustodian(this.rig, s, this.first ? 1 : Math.min(dt, 0.1)));
     if (this.first) { this.rig.root.rotation.y = 0; this.rig.root.updateMatrixWorld(true); this.frame(); }
     this.first = false;
-    this.rig.root.rotation.y = 0.55 + this.t * 0.42;
+    // sway around a three-quarter view so the face and posture stay readable
+    this.rig.root.rotation.y = 0.45 + Math.sin(this.t * 0.32) * 0.95;
     if (this.rig.gun) this.rig.gun.visible = false;
     return stage.render(this.scene, this.cam, 96, 128, ctx2d, { posterize: 14, dither: 0.45 });
   }
@@ -1378,7 +1379,7 @@ export class UI {
       tt.update(dt);
       drawTrace(dt);
       // keyboard / pad
-      if (k.back && (combineFrom !== null || discardAsk !== null || focus === 'acts') && !input.hit('Tab')) {
+      if (k.back && (combineFrom !== null || discardAsk !== null || focus === 'acts') && !input.hit('Tab', 'KeyQ')) {
         combineFrom = null; discardAsk = null; focus = 'slots'; audio.uiBack(); refresh(); v.consumed = true; return;
       }
       if (focus === 'slots') {
