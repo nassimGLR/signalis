@@ -6,7 +6,8 @@
 // checks that no ambient glitch rows are active, and checks the safe-room
 // lighting rules. Prints PASS/FAIL lines and exits 1 on any FAIL.
 //
-// Usage: node scripts/world-shots.mjs [--res=auto|240|270|320|360] [--only=cryo,quiet] [--details] [--size=1280x720]
+// Usage: node scripts/world-shots.mjs [--res=auto|240|270|320|360] [--only=cryo,quiet] [--details] [--fx]
+//        [--native-cam] [--size=1280x720]
 import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -21,6 +22,7 @@ const arg = (name, def) => {
 const RES = arg('res', 'auto');
 const ONLY = arg('only', '') ? String(arg('only')).split(',') : null;
 const DETAILS = !!arg('details', false);
+const NATIVE_CAM = !!arg('native-cam', false); // keep the game's own camera (after the controls merge)
 const [VW, VH] = String(arg('size', '1280x720')).split('x').map(Number);
 const out = 'shots';
 await mkdir(out, { recursive: true });
@@ -74,7 +76,7 @@ await sleep(1500);
 await drain();
 
 // ---- presentation setup: CRT off, requested line count, controls-stream camera
-await g((res) => {
+await g(([res, native]) => {
   const G = window.__game;
   const s = G.ui.settings;
   s.crt = false;
@@ -86,7 +88,9 @@ await g((res) => {
   // Hollows hold still for the tour (their update would wake them and attack).
   for (const e of G.enemies) e.update = function () {};
   G.__shotCam = { dist: 17.5, pitch: 62, fov: 24, target: null };
+  const nativeCam = G.updateCamera.bind(G);
   G.updateCamera = function (dt, snap) {
+    if (native && !this.__shotCam.target) return nativeCam(dt, snap);
     const P = this.player, cam = this.camera, o = this.__shotCam;
     cam.fov = o.fov; cam.updateProjectionMatrix();
     const pitch = o.pitch * Math.PI / 180;
@@ -105,7 +109,7 @@ await g((res) => {
     cam.lookAt(tx, ty, tz);
     if (this.scene && this.scene.fog) { this.scene.fog.near = dist + 4; this.scene.fog.far = dist + 20; }
   };
-}, RES);
+}, [RES, NATIVE_CAM]);
 await sleep(500);
 
 // ---- static data checks (safe rooms: warm light, no red)
@@ -250,7 +254,7 @@ if (DETAILS) {
     ['detail-door', 'G', 22.4, 31.4, [22.5, 29.8], 6.0, 42],
     ['detail-deck2', 'N', 51.5, 38.6, [51.2, 37.2], 6.5, 48],
   ];
-  for (const [name, room, x, z, tgt, dist, pitch, spin] of CLOSE) {
+  for (const [name, , x, z, tgt, dist, pitch, spin] of CLOSE) {
     if (ONLY && !ONLY.includes(name)) continue;
     await g(([x, z, tgt, dist, pitch, spin]) => {
       const G = window.__game;
