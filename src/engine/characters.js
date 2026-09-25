@@ -9,6 +9,11 @@
 // skeleton, so every segment moves exactly as if it were parented to its pivot,
 // but the whole figure costs a single draw call. L = the character's own left
 // (+X when the model faces +Z).
+// SKINNING CAVEAT (plan §4 said "no skinning"; rigid 1-bone weights are the
+// only way to fit ≤ 8 draw calls): any replacement material on rig.body must
+// keep three's skinning shader chunks. A custom ShaderMaterial or an
+// onBeforeCompile hack that drops <skinning_*> collapses the body to its bind
+// layout. Built-in three materials handle this automatically.
 //
 // Animation is procedural and layered: planted-foot locomotion via two-bone
 // IK, an upper-body layer (aim / reload / actions / condition), head look,
@@ -36,11 +41,11 @@ const C = {
   yoke: 0xc7bfae, band: 0xa3161f, belt: 0x4a3c30, beltDark: 0x3a2f26,
   boot: 0x16171a, sole: 0x0a0a0b, bone: 0xd9d2c2, metal: 0x8a8578, lamp: 0x3b3e42,
   gun: 0x26282c, gunHi: 0x50555b,
-  // hollows
-  hSkin: 0x7b7478, hSkinDark: 0x5e585c, chassis: 0x5a5d60, chassisDark: 0x3a3c3f,
-  cable: 0x1a1414, cableTip: 0xa3161f, feet: 0x55585b, feetDark: 0x3a3c3f,
+  // hollows: pale oxidised chassis and face plate against dark shredded cloth
+  hSkin: 0x7b7478, hSkinDark: 0x5e585c, hFace: 0x9a9396, chassis: 0x979182, chassisDark: 0x35322e,
+  rib: 0x3b3631, cable: 0x1a1414, cableTip: 0xa3161f, cablePale: 0xbcb4a3, feet: 0x6a6c6e, feetDark: 0x3a3c3f,
 };
-const HOLLOW_TONES = [0x3a3b3e, 0x44392e, 0x2f3a40];
+const HOLLOW_TONES = [0x2a2b2e, 0x3a2d22, 0x222b31];
 
 // ------------------------------------------------------------------ atlas
 // A 128x64 texture painted once (no DOM needed): faces, rib lines, lamp lens,
@@ -57,14 +62,19 @@ function atlas() {
 
   // WREN-3's face: 0.005 m per pixel, x −0.08..0.08, y 0.12 (top) .. −0.04 (chin)
   paintFace(dif, RECT.faceWren, (f, e) => {
-    f(0, 0, 32, 32, C.skin);
+    f(0, 0, 32, 32, 0xe0cdbf);
+    // a small warm emissive lift so the face never reads as a grey mask under
+    // the cold key/fill lights (~0.08); dark features are cut out of it below
+    e(0, 0, 32, 32, 0x1a110b);
     f(8, 5, 5, 1, 0xa88878); f(19, 5, 5, 1, 0xa88878);     // faint brows (under the fringe)
+    e(8, 5, 5, 1, 0x000000); e(19, 5, 5, 1, 0x000000);
     // eyes: 2x1 teal with a dark lash line above
     f(8, 8, 3, 1, 0x2a1d1a); f(21, 8, 3, 1, 0x2a1d1a);
+    e(8, 8, 3, 1, 0x000000); e(21, 8, 3, 1, 0x000000);
     f(9, 9, 2, 1, 0x6fc3c9); f(21, 9, 2, 1, 0x6fc3c9);
     e(9, 9, 2, 1, 0x28585c); e(21, 9, 2, 1, 0x28585c);
-    f(16, 14, 1, 1, 0xb09e8f); // nose shadow
-    f(9, 15, 2, 2, 0xdcc9bf); f(21, 15, 2, 2, 0xdcc9bf);   // a little warmth in the cheeks
+    f(16, 14, 1, 1, 0xb09e8f); e(16, 14, 1, 1, 0x0a0604); // nose shadow
+    f(9, 15, 2, 2, 0xe6c8b8); f(21, 15, 2, 2, 0xe6c8b8);   // a little warmth in the cheeks
     // android panel seams: faint, along the jaw line only
     for (let y = 16; y < 27; y++) {
       const t = (y - 16) / 10;
@@ -73,23 +83,25 @@ function atlas() {
     }
   }, emi);
   // Hollow faces: grey-violet, split vertically with a dark cavity
+  // (pale plate so the dark split reads at game scale; the socket and a thin
+  // line deep in the cavity glow)
   const hollowFace = (r, bothEyes) => paintFace(dif, r, (f, e) => {
-    f(0, 0, 32, 32, C.hSkin);
-    for (let i = 0; i < 40; i++) f(Math.floor(rnd() * 32), Math.floor(rnd() * 32), 0x6c656a);
-    f(0, 18, 4, 14, 0x6a6468); f(28, 18, 4, 14, 0x6a6468);
+    f(0, 0, 32, 32, C.hFace);
+    for (let i = 0; i < 40; i++) f(Math.floor(rnd() * 32), Math.floor(rnd() * 32), 0x898285);
+    f(0, 18, 4, 14, 0x7a7477); f(28, 18, 4, 14, 0x7a7477);
     // eye sockets
-    f(7, 8, 4, 2, 0x221d20); f(21, 8, 4, 2, 0x221d20);
-    f(8, 8, 2, 1, 0xff3a30); e(8, 8, 2, 1, 0xd02018);
-    if (bothEyes) { f(22, 8, 2, 1, 0xff3a30); e(22, 8, 2, 1, 0xd02018); }
+    f(6, 7, 6, 4, 0x1a1518); f(20, 7, 6, 4, 0x1a1518);
+    f(7, 8, 3, 2, 0xff4a38); e(7, 8, 3, 2, 0xff3020);
+    if (bothEyes) { f(22, 8, 3, 2, 0xff4a38); e(22, 8, 3, 2, 0xff3020); }
     // the split: a crack from the brow down to the chin, widening into a cavity
     for (let y = 0; y < 32; y++) {
       const cx = 17 + Math.round(Math.sin(y * 0.7) * 0.8);
       const wdt = y < 6 ? 1 : y < 10 ? 2 : y < 26 ? (bothEyes ? 5 : 4) : 2;
-      f(cx - (wdt >> 1), y, wdt, 1, 0x100b0b);
-      if (wdt >= 4) f(cx, y, 1, 1, 0x3a0e10);
+      f(cx - (wdt >> 1), y, wdt, 1, 0x0c0808);
+      if (wdt >= 4) { f(cx, y, 1, 1, 0x5a1414); e(cx, y, 1, 1, 0x4a0c0a); }
       if (y > 10 && y < 26) { f(cx - (wdt >> 1) - 1, y, 1, 1, 0x4e474b); f(cx + wdt - (wdt >> 1), y, 1, 1, 0x4e474b); }
     }
-    for (let y = 12; y < 28; y++) { f(Math.round(5 + (y - 12) * 0.25), y, 1, 1, 0x655f63); }
+    for (let y = 12; y < 28; y++) { f(Math.round(5 + (y - 12) * 0.25), y, 1, 1, 0x746e71); }
   }, emi);
   hollowFace(RECT.faceHollow, false);
   hollowFace(RECT.faceRusher, true);
@@ -117,11 +129,12 @@ function atlas() {
       for (let x = 0; x < w; x++) {
         const dx = Math.abs(x - 7.5);
         if (dx < 1.5) continue;
-        put(dif, ox + x, oy + Math.min(11, y + Math.floor(dx / 4)), 0x3e4043);
+        put(dif, ox + x, oy + Math.min(11, y + Math.floor(dx / 4)), C.rib);
+        put(dif, ox + x, oy + Math.min(11, y + 1 + Math.floor(dx / 4)), C.rib);
       }
     }
-    rect(dif, ox + 7, oy, 2, 12, 0x46484b);
-    for (let y = 12; y < 16; y++) for (let x = 1; x < w; x += 3) put(dif, ox + x, oy + y, 0x404245);
+    rect(dif, ox + 7, oy, 2, 12, 0x5e584e);
+    for (let y = 12; y < 16; y++) for (let x = 1; x < w; x += 3) put(dif, ox + x, oy + y, C.rib);
     const [lx, ly, lw, lh] = RECT.lens;
     rect(dif, lx, ly, lw, lh, 0xfff1d6); rect(emi, lx, ly, lw, lh, 0xd8c8a8);
     rect(emi, lx + 2, ly + 2, 4, 4, 0xfff1d6);
@@ -129,6 +142,20 @@ function atlas() {
     rect(dif, px, py, pw, ph, C.bone);
     rect(dif, px + 1, py + 3, 2, 2, 0x6fc3c9); rect(dif, px + 5, py + 3, 2, 2, 0x6fc3c9);
     rect(emi, px + 1, py + 3, 2, 2, 0x3c8a90); rect(emi, px + 5, py + 3, 2, 2, 0x3c8a90);
+    // WREN-3's sleeve band: a red service band with bone piping and her unit
+    // number "W3" in white on the outer side (a service tag, no emblem).
+    // u runs around the arm (outer side at the centre), v top → bottom.
+    const [bx, by, bw, bh] = RECT.band;
+    rect(dif, bx, by, bw, bh, C.band);
+    rect(dif, bx, by, bw, 1, C.yoke); rect(dif, bx, by + bh - 1, bw, 1, C.yoke);
+    const glyphs = [
+      '#...#.###',
+      '#.#.#...#',
+      '#.#.#..##',
+      '.#.#..###',
+    ];
+    const gx = bx + Math.round(bw / 2) - 4;
+    glyphs.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] === '#') put(dif, gx + i, by + 2 + j, 0xf2ece0); });
   }
   _atlas = { map: dif.texture(), emissive: emi.texture() };
   return _atlas;
@@ -189,6 +216,8 @@ function skinBody(rig, parts, mat) {
   mesh.receiveShadow = false;
   rig.body = mesh;
   rig.tris = geo.attributes.position.count / 3;
+  rig._hull = hullOf(geo);
+  rig._M = BONES.map(() => new THREE.Matrix4());
   return mesh;
 }
 
@@ -304,13 +333,16 @@ function buildWrenParts(rig) {
   }
   strapPts.unshift(new THREE.Vector3(-0.102, 0.232, 0.0));
   add('chest', ribbon(strapPts, 0.03, 0.008, (p, i, t) => new THREE.Vector3(0, 0, 1).cross(t).normalize(), { color: C.belt }));
-  // harness lamp at the left chest (lens mapped to the emissive lens block)
-  const lampZ = loftSurfaceZ(cs.map((s) => ({ ...s, yf: undefined, y: s.yf ? 0.1 : s.y })), 0.09, 0.1) + 0.022;
-  add('chest', box(0.066, 0.05, 0.04, { color: C.lamp, faceUV: { f: RECT.lens } })).place(0.088, 0.1, lampZ, -0.12, 0.12, 0);
-  add('chest', box(0.072, 0.012, 0.024, { color: C.suitDark })).place(0.088, 0.13, lampZ + 0.012, -0.12, 0.12, 0);
+  // harness lamp clipped onto the strap, left of the sternum and below the
+  // yoke hem, so charcoal separates it from the sleeve band at game scale
+  // (lens mapped to the emissive lens block)
+  const LX = 0.05, LY = 0.064;
+  const lampZ = loftSurfaceZ(cs.map((s) => ({ ...s, yf: undefined, y: s.yf ? 0.1 : s.y })), LX, LY) + 0.024;
+  add('chest', box(0.058, 0.046, 0.036, { color: C.lamp, faceUV: { f: RECT.lens } })).place(LX, LY, lampZ, -0.1, 0.1, -0.2);
+  add('chest', box(0.064, 0.012, 0.022, { color: C.suitDark })).place(LX - 0.004, LY + 0.028, lampZ - 0.004, -0.1, 0.1, -0.2);
   rig.lamp = new THREE.Object3D();
   rig.lamp.name = 'lamp';
-  rig.lamp.position.set(0.091, 0.1, lampZ + 0.024);
+  rig.lamp.position.set(LX + 0.002, LY, lampZ + 0.02);
   rig.chest.add(rig.lamp);
 
   // ---- neck + head
@@ -352,7 +384,16 @@ function buildWrenParts(rig) {
     const sh = L ? 'shoulderL' : 'shoulderR', el = L ? 'elbowL' : 'elbowR', hd = L ? 'handL' : 'handR';
     add(sh, ball(0.05, { sides: 7, rings: 3, color: C.yoke, ry: 0.046 })).place(-0.004 * s, -0.008, 0);
     add(sh, prism(0.047, 0.041, 0.275, 7, { top: -0.02, color: C.suit }));
-    if (L) add(sh, loft([{ y: -0.168, w: 0.106, d: 0.106 }, { y: -0.108, w: 0.112, d: 0.112 }], { sides: 7, color: C.band }));
+    if (L) {
+      // sleeve band: textured around the arm, seam on the inner (body) side
+      const [bx, by, bw, bh] = RECT.band;
+      const y0 = -0.168, y1 = -0.108;
+      const bandUV = (p) => uvOf(bx + clamp(frac((Math.atan2(p.x, p.z) + PI / 2) / TAU), 0.02, 0.98) * bw, by + clamp((y1 - p.y) / (y1 - y0), 0.02, 0.98) * bh);
+      const textured = (cen, n) => Math.abs(n.y) < 0.5 && Math.abs(wrap(Math.atan2(cen.x, cen.z) + PI / 2)) > 0.5;
+      add(sh, loft([{ y: y0, w: 0.106, d: 0.106 }, { y: y1, w: 0.112, d: 0.112 }], {
+        sides: 7, uv: bandUV, uvFilter: textured, color: (cen, n) => (textured(cen, n) ? 0xffffff : C.band),
+      }));
+    }
     add(el, ball(0.045, { sides: 6, rings: 2, color: C.suit }));
     add(el, prism(0.044, 0.034, 0.24, 7, { top: 0.0, color: C.suit }));
     add(el, loft([{ y: -0.262, w: 0.072, d: 0.074 }, { y: -0.19, w: 0.08, d: 0.082 }], { sides: 7, color: C.glove }));
@@ -383,7 +424,8 @@ function buildWrenParts(rig) {
 export function buildCustodian() {
   const rig = scaffold(WREN, 'custodian');
   rig.variant = 0;
-  rig.height = WREN.height;
+  rig.height = WREN.height; // re-measured from the posed body below
+  rig.nominalHeight = WREN.height;
   const mat = bodyMaterial();
   rig.material = mat;
   skinBody(rig, buildWrenParts(rig), mat);
@@ -419,6 +461,7 @@ export function buildCustodian() {
   rig.gaitPhase = 0;
   rig.footDown = { L: true, R: true };
   poseCustodian(rig, {}, 1);
+  rig.height = Math.round(bodyExtentY(rig).max * 100) / 100;
   return rig;
 }
 
@@ -440,7 +483,7 @@ function buildHollowParts(rig, variant) {
   const P = rig.P;
   const parts = [];
   const add = (bone, part) => { part.bone = BI[bone]; parts.push(part); return part; };
-  const tone = typeof variant === 'number' ? HOLLOW_TONES[((variant % 3) + 3) % 3] : variant === 'rusher' ? 0x4a2824 : 0x3e3d38;
+  const tone = typeof variant === 'number' ? HOLLOW_TONES[((variant % 3) + 3) % 3] : variant === 'rusher' ? 0x40201b : 0x302f2b;
   const toneDark = ((tone >> 1) & 0x7f7f7f) + 0x0a0a0a;
   const cs = P.chestScale, lm = P.limb;
   let seed = typeof variant === 'number' ? 11 + variant * 7 : variant === 'rusher' ? 97 : 53;
@@ -540,7 +583,8 @@ function buildHollowParts(rig, variant) {
     const mid = new THREE.Vector3(x + (rnd() - 0.5) * 0.02, top.y - len * 0.55, 0.1 + rnd() * 0.02);
     const end = new THREE.Vector3(x + (rnd() - 0.5) * 0.03, top.y - len, 0.09 + rnd() * 0.04);
     const pts = [top, mid, end];
-    const cab = ribbon(pts, 0.009, 0.006, () => new THREE.Vector3(1, 0, 0), { color: C.cable });
+    const pale = i === 2 || i === 5; // two pale strands read against the dark cavity
+    const cab = ribbon(pts, pale ? 0.011 : 0.009, 0.006, () => new THREE.Vector3(1, 0, 0), { color: pale ? C.cablePale : C.cable });
     if (red) cab.recolor((cen) => (cen.y < end.y + 0.025 ? C.cableTip : null));
     add('head', cab);
   }
@@ -612,8 +656,14 @@ export function buildHollow(variant = 0) {
     rig.root.updateMatrixWorld(true);
     const want = new THREE.Matrix4().compose(new THREE.Vector3(0.1, 1.02, 0.34), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.05, 0.25, 0.04)), new THREE.Vector3(1, 1, 1));
     new THREE.Matrix4().copy(rig.elbowL.matrixWorld).invert().multiply(want).decompose(rig.plate.position, rig.plate.quaternion, rig.plate.scale);
+    rig.plate.geometry.computeBoundingBox();
+    rig._plateHeld = { p: rig.plate.position.clone(), q: rig.plate.quaternion.clone(), box: rig.plate.geometry.boundingBox.clone() };
   }
   poseHollow(rig, { state: 'idle' }, 1);
+  // rig.height = the POSED standing height (the hunch takes ~13 cm off the
+  // chassis), which is what brackets / focus boxes should frame
+  rig.nominalHeight = P.height;
+  rig.height = Math.round(bodyExtentY(rig).max * 100) / 100;
   return rig;
 }
 
@@ -638,6 +688,7 @@ function makeState() {
     wAim: 0, wReload: 0, cond: 0, hurt: 0, lookY: 0, lookP: 0, wTurn: 0, turnSign: 1, tph: 0,
     mvx: 0, mvz: 1, gph: 0, prevState: '',
     prevPhase: 0, rateObs: 0, iph: 0, extPhase: true,
+    plateW: 0, plateDrop: null, // Warden: 0 = plate on the arm, 1 = dropped flat on the floor
   };
 }
 
@@ -660,8 +711,96 @@ const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE
 const _e = new THREE.Euler(), _eY = new THREE.Euler(0, 0, 0, 'YXZ');
 const _mH = new THREE.Matrix4(), _mC = new THREE.Matrix4(), _mI = new THREE.Matrix4(), _mT = new THREE.Matrix4();
 const _one = new THREE.Vector3(1, 1, 1);
+const _mD = new THREE.Matrix4(), _sD = new THREE.Vector3();
 const IK = { x: 0, z: 0, b: 0 };
 const FOOT = { z: 0, y: 0, a: 0 };
+const EMPTY = Object.freeze({});
+const LEG_SIDE = [1, -1], LEG_OFF = [0, 0.5];
+const PARENT = BONES.map((n) => {
+  if (n === 'root') return -1;
+  const P2 = {
+    hips: 'root', torso: 'hips', chest: 'torso', neck: 'chest', head: 'neck',
+    shoulderL: 'chest', elbowL: 'shoulderL', handL: 'elbowL', shoulderR: 'chest', elbowR: 'shoulderR', handR: 'elbowR',
+    thighL: 'hips', kneeL: 'thighL', footL: 'kneeL', thighR: 'hips', kneeR: 'thighR', footR: 'kneeR',
+  };
+  return BI[P2[n]];
+});
+const I_ELBOWL = BI.elbowL;
+// cheap deterministic twitch noise
+const jit = (t, f, o = 0) => Math.sin(t * f * 7.1 + o) * Math.sin(t * f * 3.3 + 1.7 + o);
+
+// ---- floor contact
+// Per-bone extreme vertices (bone-local) along 26 directions. A posed body's
+// lowest point is found from these without skinning every vertex (~250 points,
+// a few µs), so lying poses can rest ON the floor instead of sinking into it.
+function hullOf(geo) {
+  const pos = geo.attributes.position.array, si = geo.attributes.skinIndex.array;
+  const dirs = [];
+  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) if (x || y || z) dirs.push([x, y, z]);
+  const best = new Int32Array(NB * dirs.length).fill(-1), score = new Float64Array(NB * dirs.length).fill(-Infinity);
+  for (let i = 0; i < pos.length / 3; i++) {
+    const b = si[i * 4];
+    for (let d = 0; d < dirs.length; d++) {
+      const s = dirs[d][0] * pos[i * 3] + dirs[d][1] * pos[i * 3 + 1] + dirs[d][2] * pos[i * 3 + 2];
+      const k = b * dirs.length + d;
+      if (s > score[k]) { score[k] = s; best[k] = i; }
+    }
+  }
+  const bone = [], pts = [];
+  for (let b = 0; b < NB; b++) {
+    const seen = new Set();
+    for (let d = 0; d < dirs.length; d++) {
+      const i = best[b * dirs.length + d];
+      if (i < 0) continue;
+      const key = `${pos[i * 3].toFixed(4)},${pos[i * 3 + 1].toFixed(4)},${pos[i * 3 + 2].toFixed(4)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      bone.push(b); pts.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+    }
+  }
+  return { n: bone.length, bone: Uint8Array.from(bone), pts: Float32Array.from(pts) };
+}
+// Root-space matrices of the committed pose → rig._M (skin space = root space).
+function boneMatrices(rig) {
+  const M = rig._M, b = rig.bones;
+  M[0].identity();
+  for (let i = 1; i < NB; i++) { b[i].updateMatrix(); M[i].multiplyMatrices(M[PARENT[i]], b[i].matrix); }
+}
+function lowestPoint(rig) {
+  const H = rig._hull, M = rig._M;
+  let lo = Infinity;
+  for (let k = 0; k < H.n; k++) {
+    const e = M[H.bone[k]].elements, j = k * 3;
+    const y = e[1] * H.pts[j] + e[5] * H.pts[j + 1] + e[9] * H.pts[j + 2] + e[13];
+    if (y < lo) lo = y;
+  }
+  return lo;
+}
+// Rest the committed pose on the floor: shift the hips so the body's lowest
+// point sits at y = floorY (lifts a sinking pose, lowers a floating one).
+function settleOnFloor(rig, S, floorY = 0) {
+  boneMatrices(rig);
+  const dy = floorY - lowestPoint(rig);
+  if (!Number.isFinite(dy)) return 0;
+  rig.hips.position.y += dy;
+  S.lastHp.y += dy;
+  for (let i = 1; i < NB; i++) rig._M[i].elements[13] += dy;
+  return dy;
+}
+// Exact vertical extent of the posed body (every vertex; build time / tests).
+export function bodyExtentY(rig, out = { min: 0, max: 0 }) {
+  boneMatrices(rig);
+  const pos = rig.body.geometry.attributes.position.array, si = rig.body.geometry.attributes.skinIndex.array;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < pos.length / 3; i++) {
+    const e = rig._M[si[i * 4]].elements;
+    const y = e[1] * pos[i * 3] + e[5] * pos[i * 3 + 1] + e[9] * pos[i * 3 + 2] + e[13];
+    if (y < lo) lo = y;
+    if (y > hi) hi = y;
+  }
+  out.min = lo; out.max = hi;
+  return out;
+}
 
 // Two-bone IK in the parent's frame. (dx,dy,dz) = target − pivot. Upper bone
 // rotation = Euler XYZ (x = pitch, z = splay), lower bone bends about its local X.
@@ -688,27 +827,29 @@ function solveLimb(dx, dy, dz, a, b, sign) {
 // the ground contact point planted (heel roll → flat → toe roll). The swing
 // is eased in world space, so the foot leaves and lands at rest.
 const HEEL = 0.066, TOE = 0.15;
+// stance part of the cycle (t 0..1 heel strike → toe off) → FOOT
+function footStance(t, front, back, aStrike, aToe, ank) {
+  const c = front + (back - front) * t;
+  let a = 0;
+  if (t < 0.22) a = aStrike * (1 - smooth(t / 0.22));
+  else if (t > 0.6) a = -aToe * smooth((t - 0.6) / 0.4);
+  if (a >= 0) {
+    FOOT.z = c - HEEL + HEEL * Math.cos(a) - ank * Math.sin(a);
+    FOOT.y = HEEL * Math.sin(a) + ank * Math.cos(a);
+  } else {
+    FOOT.z = c + TOE - TOE * Math.cos(a) - ank * Math.sin(a);
+    FOOT.y = -TOE * Math.sin(a) + ank * Math.cos(a);
+  }
+  FOOT.a = a;
+  return FOOT;
+}
 function footCycle(u, beta, D, lift, aStrike, aToe, ank) {
   const span = beta * D;
   const front = 0.42 * span, back = -0.58 * span;
-  const stance = (t) => {
-    const c = front + (back - front) * t;
-    let a = 0;
-    if (t < 0.22) a = aStrike * (1 - smooth(t / 0.22));
-    else if (t > 0.6) a = -aToe * smooth((t - 0.6) / 0.4);
-    if (a >= 0) {
-      FOOT.z = c - HEEL + HEEL * Math.cos(a) - ank * Math.sin(a);
-      FOOT.y = HEEL * Math.sin(a) + ank * Math.cos(a);
-    } else {
-      FOOT.z = c + TOE - TOE * Math.cos(a) - ank * Math.sin(a);
-      FOOT.y = -TOE * Math.sin(a) + ank * Math.cos(a);
-    }
-    FOOT.a = a;
-  };
-  if (u < beta) { stance(u / beta); return FOOT; }
+  if (u < beta) return footStance(u / beta, front, back, aStrike, aToe, ank);
   const t = (u - beta) / (1 - beta);
-  stance(1); const z0 = FOOT.z, y0 = FOOT.y, a0 = FOOT.a;
-  stance(0); const z1 = FOOT.z, y1 = FOOT.y, a1 = FOOT.a;
+  footStance(1, front, back, aStrike, aToe, ank); const z0 = FOOT.z, y0 = FOOT.y, a0 = FOOT.a;
+  footStance(0, front, back, aStrike, aToe, ank); const z1 = FOOT.z, y1 = FOOT.y, a1 = FOOT.a;
   const e = smooth((t - 0.08) / 0.8); // lift first, land after the reach
   const travel = D * (1 - beta);        // hip travel during the swing
   FOOT.z = z0 + (z1 - z0 + travel) * e - travel * t;
@@ -776,15 +917,17 @@ function armIK(rig, S, side, tx, ty, tz, w, inChest = false) {
 }
 
 // Orient a hand so its -Y (barrel) points along root-space euler (px, py, pz); weight w.
+function mulRot(S, bone) {
+  const i = BI[bone] * 3;
+  _e.set(S.T[i], S.T[i + 1], S.T[i + 2]);
+  _q.multiply(_q2.setFromEuler(_e));
+}
 function handAim(rig, S, side, px, py, pz, w) {
   if (w <= 0) return;
-  const sh = side > 0 ? 'shoulderL' : 'shoulderR', el = side > 0 ? 'elbowL' : 'elbowR', hd = side > 0 ? 'handL' : 'handR';
+  const L = side > 0;
   _q.copy(S.hq);
-  for (const b of ['torso', 'chest', sh, el]) {
-    const i = BI[b] * 3;
-    _e.set(S.T[i], S.T[i + 1], S.T[i + 2]);
-    _q.multiply(_q2.setFromEuler(_e));
-  }
+  mulRot(S, 'torso'); mulRot(S, 'chest'); mulRot(S, L ? 'shoulderL' : 'shoulderR'); mulRot(S, L ? 'elbowL' : 'elbowR');
+  const hd = L ? 'handL' : 'handR';
   _e.set(px, py, pz);
   _q2.setFromEuler(_e);
   _q.invert().multiply(_q2);
@@ -847,7 +990,7 @@ function startFade(S, dur) {
 // Pose driver for WREN-3. All fields optional (see the rig contract).
 export function poseCustodian(rig, s, dt) {
   const S = rig._st;
-  s = s || {};
+  s = s || EMPTY;
   dt = num(dt, 0.016);
   if (dt < 0) dt = 0;
   const snap = dt >= 1;
@@ -889,11 +1032,11 @@ export function poseCustodian(rig, s, dt) {
   if (S.wTurn > 0.01 && !snap) S.tph += dt * TAU / 0.6; else if (S.wTurn <= 0.01) S.tph = 0;
   let mvx = 0, mvz = 1;
   if (s.moveLocal && typeof s.moveLocal === 'object' && speed > 0.05) {
-    const mx = num(s.moveLocal.x, 0), mz = num(s.moveLocal.z, 1), ml = Math.hypot(mx, mz);
+    const mx = num(s.moveLocal.x, 0), mz = num(s.moveLocal.z, 1), ml = Math.sqrt(mx * mx + mz * mz);
     if (ml > 1e-3) { mvx = mx / ml; mvz = mz / ml; }
   }
   S.mvx += (mvx - S.mvx) * k; S.mvz += (mvz - S.mvz) * k;
-  { const ml = Math.hypot(S.mvx, S.mvz) || 1; S.mvx /= ml; S.mvz /= ml; }
+  { const ml = Math.sqrt(S.mvx * S.mvx + S.mvz * S.mvz) || 1; S.mvx /= ml; S.mvz /= ml; } // (sqrt, not hypot: hypot boxes its result)
   const wAim = S.wAim, wRel = S.wReload * (1 - wAim);
   const limpW = clamp01(S.cond), failW = clamp01(S.cond - 1), critW = clamp01(S.cond - 2);
 
@@ -902,6 +1045,7 @@ export function poseCustodian(rig, s, dt) {
     if (S.mode !== 'dead') { startFade(S, 0.18); S.mode = 'dead'; }
     custodianDeath(rig, S, deadT);
     commit(rig, S, dt);
+    settleOnFloor(rig, S);
     return;
   }
   if (S.mode === 'dead') { startFade(S, 0.3); }
@@ -985,9 +1129,9 @@ export function poseCustodian(rig, s, dt) {
     -spineYaw * 0.5 + 0.6 * S.lookY + 0.4 * glance + turnLead * 0.8, -hipRoll * 0.4 + 0.03 * Math.sin(time * 0.9) * idle);
 
   // ---- legs: planted-foot IK
-  const legs = [[1, 0], [-1, 0.5]];
-  for (const [side, off] of legs) {
-    const u = frac(ph / TAU + off);
+  for (let li = 0; li < 2; li++) {
+    const side = LEG_SIDE[li];
+    const u = frac(ph / TAU + LEG_OFF[li]);
     const bLeg = side < 0 ? beta * (1 - 0.3 * limpW) : beta;
     footCycle(u, bLeg, D, lift * (side < 0 ? 1 - 0.3 * limpW : 1), aStrike, aToe, P.ankle);
     rig.footDown[side > 0 ? 'L' : 'R'] = walkW < 0.5 || u < bLeg;
@@ -1022,7 +1166,8 @@ export function poseCustodian(rig, s, dt) {
   // ---- arms: locomotion swing (FK) as the base layer
   const swing = lerp(0.42, 0.7, runW) * walkW;
   const abd = 0.1 + 0.03 * walkW;
-  for (const side of [1, -1]) {
+  for (let ai = 0; ai < 2; ai++) {
+    const side = LEG_SIDE[ai];
     const damp = side < 0 ? 1 - 0.6 * failW : 1 - 0.3 * failW;
     const sw = side * swing * cph * damp;
     const fwd = Math.max(0, -sw);
@@ -1030,6 +1175,16 @@ export function poseCustodian(rig, s, dt) {
     R(S, sh, sw - 0.12 * runW + 0.02 * idle * Math.sin(time * 0.8 + side), 0, side * (abd + 0.02 * breath * idle));
     R(S, el, -(0.16 + 0.3 * fwd / Math.max(0.2, swing) * walkW + 1.05 * runW + 0.04 * idle), 0, 0);
     R(S, hd, 0.05, side * 0.1, 0);
+  }
+
+  // ---- hurt flinch on the spine. Applied BEFORE the upper-body IK so an aimed
+  // gun stays level while the torso recoils (the arms compensate); the head
+  // and loose-arm parts of the flinch are added after.
+  const hurtE = S.hurt > 0 ? Math.sin(Math.min(1, S.hurt) * PI * 0.5) : 0;
+  const hcx = Math.cos(hurtDir), hcz = Math.sin(hurtDir);
+  if (hurtE > 0) {
+    Radd(S, 'torso', -0.2 * hcx * hurtE, 0, 0.2 * hcz * hurtE);
+    Radd(S, 'chest', -0.15 * hcx * hurtE, 0.1 * hcz * hurtE, 0.15 * hcz * hurtE);
   }
 
   // ---- upper-body overrides (IK in the chest frame)
@@ -1041,12 +1196,14 @@ export function poseCustodian(rig, s, dt) {
   }
   if (wAim > 0) {
     // two-handed isosceles grip, gun ≈ 1.25 m high
-    const py = 1.245 - Math.sin(aimPitch) * 0.44 + 0.05 * recoil;
-    const pz = 0.45 * Math.cos(aimPitch) - 0.045 * recoil;
+    // recoil: the wrists kick back and the barrel flips ~0.2 rad; capped so
+    // the muzzle stays inside the 1.15–1.35 m band the game raycasts from
+    const py = 1.245 - Math.sin(aimPitch) * 0.44 + 0.018 * recoil;
+    const pz = 0.45 * Math.cos(aimPitch) - 0.05 * recoil;
     armIK(rig, S, -1, -0.03, py, pz, wAim);
     armIK(rig, S, 1, 0.025, py - 0.055, pz - 0.035, wAim);
-    handAim(rig, S, -1, -PI / 2 + aimPitch - 0.25 * recoil, 0, 0, wAim);
-    handAim(rig, S, 1, -PI / 2 + aimPitch - 0.25 * recoil, 0, -0.9, wAim);
+    handAim(rig, S, -1, -PI / 2 + aimPitch - 0.2 * recoil, 0, 0, wAim);
+    handAim(rig, S, 1, -PI / 2 + aimPitch - 0.2 * recoil, 0, -0.9, wAim);
     // head follows the sights
     Rmix(S, 'head', Rget(S, 'head', 0) + 0.06 + aimPitch * 0.5, Rget(S, 'head', 1) * 0.3, 0, wAim * 0.7);
   }
@@ -1098,15 +1255,12 @@ export function poseCustodian(rig, s, dt) {
     }
   }
 
-  // ---- hurt: flinch away from the hit
-  const hurtE = S.hurt > 0 ? Math.sin(Math.min(1, S.hurt) * PI * 0.5) : 0;
+  // ---- hurt: head snaps away from the hit, loose arms fly out (not while aiming)
   if (hurtE > 0) {
-    const cx = Math.cos(hurtDir), cz = Math.sin(hurtDir);
-    Radd(S, 'torso', -0.2 * cx * hurtE, 0, 0.2 * cz * hurtE);
-    Radd(S, 'chest', -0.15 * cx * hurtE, 0.1 * cz * hurtE, 0.15 * cz * hurtE);
-    Radd(S, 'head', -0.3 * cx * hurtE, 0, 0.2 * cz * hurtE);
-    Radd(S, 'shoulderL', -0.3 * hurtE * (1 - wAim), 0, 0.2 * hurtE);
-    Radd(S, 'shoulderR', -0.3 * hurtE * (1 - wAim), 0, -0.2 * hurtE);
+    Radd(S, 'head', -0.3 * hcx * hurtE, 0, 0.2 * hcz * hurtE);
+    const armE = hurtE * (1 - wAim);
+    Radd(S, 'shoulderL', -0.3 * armE, 0, 0.2 * armE);
+    Radd(S, 'shoulderR', -0.3 * armE, 0, -0.2 * armE);
   }
 
   // clamp the head look range (±70° yaw, ±25° pitch) across the chain
@@ -1131,7 +1285,7 @@ function custodianDeath(rig, S, t) {
   const P = rig.P;
   const a = smooth(t / 0.5), b = smooth((t - 0.45) / 0.65), c = smooth((t - 1.05) / 0.35);
   // hips path
-  const y = t < 0.5 ? lerp(P.hipsY - 0.01, 0.5, a * a) : lerp(0.5, 0.155, b);
+  const y = t < 0.5 ? lerp(P.hipsY - 0.01, 0.5, a * a) : lerp(0.5, 0.24, b); // settleOnFloor trims the rest
   S.hp.set(lerp(0, -0.02, b), y + 0.01 * (1 - c) * Math.sin(c * PI), lerp(0.06 * a, 0.42, b));
   _q.identity().slerp(_qDown1, a);
   S.hq.copy(_q).slerp(_qDown2, b);
@@ -1140,16 +1294,18 @@ function custodianDeath(rig, S, t) {
   R(S, 'chest', lerp(0.2 * a, -0.05, b), lerp(0, 0.15, b), 0);
   R(S, 'neck', lerp(0.2 * a, 0.1, b), 0, lerp(0, 0.25, b));
   R(S, 'head', lerp(0.35 * a, 0.2, b), lerp(0, 0.3, b), lerp(0, 0.35 + 0.05 * c, b));
-  // legs: buckle to kneel, then trail bent
-  R(S, 'thighL', lerp(-0.45 * a, -0.55, b), 0, lerp(0.05, 0.1, b));
-  R(S, 'kneeL', lerp(1.6 * a, 1.0, b), 0, 0);
-  R(S, 'footL', lerp(0.5 * a, 0.3, b), 0, 0);
+  // legs: buckle to kneel, then the upper (left) leg falls forward across the
+  // lower one, knee to the floor
+  R(S, 'thighL', lerp(-0.45 * a, -0.8, b), 0, lerp(0.05, -0.25, b));
+  R(S, 'kneeL', lerp(1.6 * a, 0.9, b), 0, 0);
+  R(S, 'footL', lerp(0.5 * a, 0.4, b), 0, 0);
   R(S, 'thighR', lerp(-0.3 * a, -0.25, b), 0, lerp(-0.05, -0.05, b));
   R(S, 'kneeR', lerp(1.7 * a, 0.45, b), 0, 0);
   R(S, 'footR', lerp(0.5 * a, 0.2, b), 0, 0);
-  // arms: loose, the lower one reaches forward under the head, the upper drapes
-  R(S, 'shoulderL', lerp(-0.2 * a, -0.6, b), 0, lerp(0.15, -0.35, b));
-  R(S, 'elbowL', lerp(-0.3 * a, -0.5, b), 0, 0);
+  // arms: loose, the lower one reaches forward under the head, the upper one
+  // drapes forward to the floor
+  R(S, 'shoulderL', lerp(-0.2 * a, -1.2, b), 0, lerp(0.15, -0.72, b));
+  R(S, 'elbowL', lerp(-0.3 * a, -0.3, b), 0, 0);
   R(S, 'handL', 0, 0, 0);
   R(S, 'shoulderR', lerp(-0.3 * a, -1.9, b), 0, lerp(-0.15, 0.1, b));
   R(S, 'elbowR', lerp(-0.2 * a, -0.3, b), 0, 0);
@@ -1160,11 +1316,88 @@ function custodianDeath(rig, S, t) {
 const HOLLOW_STATES = new Set(['dormant', 'idle', 'investigate', 'notice', 'rising', 'chase', 'lunge', 'attack', 'flinch', 'knockdown', 'down', 'stomped', 'burning', 'ash', 'dead']);
 const LYING = new Set(['knockdown', 'down', 'stomped', 'burning', 'ash', 'dead']);
 const FADE = { notice: 0.08, flinch: 0.07, attack: 0.12, lunge: 0.15, knockdown: 0.1, down: 0.25, stomped: 0.06, rising: 0.12, dead: 0.3, ash: 0.5, burning: 0.2 };
+// Dormant slump (root space): hips against the wall, left knee drawn up with
+// the foot planted, right leg stretched out on its heel.
+const DORM = { hy: 0.235, hz: -0.05, pitch: -0.25, roll: 0.06, lx: 0.14, lz: 0.36, rx: -0.21, ry: 0.1, rz: 0.8, rPitch: 0.95 };
+// Where the Warden's bulkhead plate lies once dropped (root space, flat, face up)
+const PLATE_DROP = {
+  lying: { x: 0.66, z: -0.42, yaw: 0.75 },
+  ash: { x: 0.62, z: -0.5, yaw: 0.55 },
+  dormant: { x: 0.6, z: 0.2, yaw: 0.15 },
+};
+const PLATE_Y = 0.028; // centre height: the dented plate then spans y ≈ 0..0.11
+
+// standing posture: hunch, thrust head, dropped shoulder
+function hollowStand(S, rusher, hunch, t, lean, headLook, walk) {
+  R(S, 'torso', hunch * 0.9 + lean * 0.5, 0, 0.06);
+  R(S, 'chest', hunch * 0.75 + lean * 0.5, 0, 0.05);
+  R(S, 'neck', (rusher ? 0.5 : 0.55) + 0.1 * walk, 0, -0.05);
+  R(S, 'head', -(rusher ? 0.55 : 0.4) - hunch * 1.2 + headLook, 0, 0.28 + 0.1 * jit(t, 0.4));
+}
+
+// ankle height that keeps a Hollow foot pitched by a (toe-up +) on the floor
+function soleLift(a, ank) {
+  return a < 0 ? ank * Math.cos(a) - 0.16 * Math.sin(a) : ank * Math.cos(a) + 0.062 * Math.sin(a);
+}
+
+// gait for the walking states; runs on the rig's own phase so feet stay planted
+function hollowLegs(rig, S, spd, drag) {
+  const P = rig.P, variant = rig.variant;
+  const rusher = variant === 'rusher', warden = variant === 'warden';
+  const walkW = sstep(0.05, 0.35, spd);
+  const D = 2 * PI / hollowPhaseRate(1, variant), beta = rusher ? 0.45 : 0.62;
+  for (let li = 0; li < 2; li++) {
+    const side = LEG_SIDE[li];
+    const u = frac(S.gph / TAU + LEG_OFF[li]);
+    const dragging = side < 0 && drag;
+    const bL = dragging ? beta * 0.8 : beta;
+    footCycle(u, bL, D, (dragging ? 0.02 : rusher ? 0.12 : 0.06), dragging ? 0 : 0.2, dragging ? 0.1 : 0.3, P.ankle);
+    rig.footDown[side > 0 ? 'L' : 'R'] = walkW < 0.5 || u < bL;
+    const fz = FOOT.z * walkW, fa = (dragging ? -0.25 * walkW : 0) + FOOT.a * walkW;
+    let fy = P.ankle + (FOOT.y - P.ankle) * walkW;
+    if (dragging) fy = Math.max(fy, soleLift(fa, P.ankle)); // the dragged toe scrapes, never sinks
+    legIK(rig, S, side, side * (warden ? 0.13 : 0.1), fy, fz + (side > 0 ? 0.04 : -0.03) * (1 - walkW), fa, side * 0.12 + (dragging ? -0.3 : 0), 1);
+  }
+  return walkW;
+}
+
+// Warden: blend the plate between the arm (held) and a flat spot on the floor.
+// The blend runs in root space and the plate's lowest corner is kept on or
+// above the floor while it tips off the falling arm.
+const _pP = new THREE.Vector3(), _qP = new THREE.Quaternion(), _pF = new THREE.Vector3(), _qF = new THREE.Quaternion(), _vC = new THREE.Vector3();
+function placePlate(rig, S, haveM, drop) {
+  const pl = rig.plate, H = rig._plateHeld;
+  if (S.plateW <= 1e-4 || !drop) { pl.position.copy(H.p); pl.quaternion.copy(H.q); return; }
+  if (!haveM) boneMatrices(rig);
+  const ME = rig._M[I_ELBOWL];
+  // held pose in root space
+  _mD.compose(H.p, H.q, _one).premultiply(ME);
+  _mD.decompose(_pP, _qP, _sD);
+  // floor pose: flat, face up
+  _eY.set(-PI / 2, drop.yaw, 0);
+  _qF.setFromEuler(_eY);
+  _pF.set(drop.x, PLATE_Y, drop.z);
+  const w = smooth(S.plateW);
+  _pP.lerp(_pF, w);
+  _qP.slerp(_qF, w);
+  // lowest bounding-box corner → keep it on the floor
+  const bb = H.box;
+  let lo = Infinity;
+  for (let k = 0; k < 8; k++) {
+    _vC.set(k & 1 ? bb.max.x : bb.min.x, k & 2 ? bb.max.y : bb.min.y, k & 4 ? bb.max.z : bb.min.z).applyQuaternion(_qP);
+    if (_vC.y < lo) lo = _vC.y;
+  }
+  if (_pP.y + lo < 0) _pP.y = -lo;
+  // back into the forearm's frame
+  _mD.compose(_pP, _qP, _one);
+  _mT.copy(ME).invert().multiply(_mD);
+  _mT.decompose(pl.position, pl.quaternion, _sD);
+}
 
 // Pose driver for the Hollows. See the rig contract for the fields.
 export function poseHollow(rig, s, dt) {
   const S = rig._st;
-  s = s || {};
+  s = s || EMPTY;
   dt = num(dt, 0.016);
   if (dt < 0) dt = 0;
   const snap = dt >= 1;
@@ -1187,68 +1420,53 @@ export function poseHollow(rig, s, dt) {
     S.prevState = state;
   }
   if (!snap) S.gph += dt * hollowPhaseRate(speed, variant);
-  const jit = (f, o = 0) => Math.sin(t * f * 7.1 + o) * Math.sin(t * f * 3.3 + 1.7 + o);
   S.hs.set(1, 1, 1);
 
   // posture base (hunch, thrust head, dropped shoulder)
   const hunch = rusher ? 0.46 : warden ? 0.12 : 0.26;
   const baseHips = P.hipsY - (rusher ? 0.17 : 0.035);
-  const setStand = (lean, headLook, walk) => {
-    R(S, 'torso', hunch * 0.9 + lean * 0.5, 0, 0.06);
-    R(S, 'chest', hunch * 0.75 + lean * 0.5, 0, 0.05);
-    R(S, 'neck', (rusher ? 0.5 : 0.55) + 0.1 * walk, 0, -0.05);
-    R(S, 'head', -(rusher ? 0.55 : 0.4) - hunch * 1.2 + headLook, 0, 0.28 + 0.1 * jit(0.4));
-  };
-  let lying = false;
-
-  // gait (used by the walking states)
-  const walkLegs = (spd, drag) => {
-    const walkW = sstep(0.05, 0.35, spd);
-    const stride = hollowPhaseRate(1, variant) > 0 ? PI / hollowPhaseRate(1, variant) : 0.5;
-    const D = 2 * stride, beta = rusher ? 0.45 : 0.62;
-    const ph = S.gph;
-    for (const [side, off] of [[1, 0], [-1, 0.5]]) {
-      const u = frac(ph / TAU + off);
-      const dragging = side < 0 && drag;
-      const bL = dragging ? beta * 0.8 : beta;
-      footCycle(u, bL, D, (dragging ? 0.02 : rusher ? 0.12 : 0.06), dragging ? 0 : 0.2, dragging ? 0.1 : 0.3, P.ankle);
-      rig.footDown[side > 0 ? 'L' : 'R'] = walkW < 0.5 || u < bL;
-      const fz = FOOT.z * walkW, fy = P.ankle + (FOOT.y - P.ankle) * walkW, fa = (dragging ? -0.25 * walkW : 0) + FOOT.a * walkW;
-      legIK(rig, S, side, side * (warden ? 0.13 : 0.1), fy, fz + (side > 0 ? 0.04 : -0.03) * (1 - walkW), fa, side * 0.12 + (dragging ? -0.3 : 0), 1);
-    }
-    return walkW;
-  };
+  const sx = warden ? 0.13 : 0.1; // standing stance half-width
+  let floor = 0;          // 0: feet planted by IK, 1: rest the body on the floor
+  let floorY = 0;         // lowest point height when resting (reviving hops)
+  let plateT = 0, drop = null; // Warden plate: drop weight target + spot
 
   switch (state) {
     case 'dormant': {
-      // slumped against a wall: sitting, knees up, one leg out, head lolled
-      S.hp.set(0, 0.2, -0.05);
-      S.hq.setFromEuler(_e.set(-0.25, 0, 0.06));
+      // slumped against a wall: knees IK-planted, head lolled
+      S.hp.set(0, DORM.hy, DORM.hz);
+      S.hq.setFromEuler(_e.set(DORM.pitch, 0, DORM.roll));
       R(S, 'torso', -0.1, 0, 0.1); R(S, 'chest', 0.25, 0, 0.05);
-      R(S, 'neck', 0.5, 0.1, 0.2); R(S, 'head', 0.4 + jit(0.4) * 0.05 * twitch, 0.35, 0.35);
-      R(S, 'thighL', -1.35, 0.25, 0.15); R(S, 'kneeL', 1.9, 0, 0); R(S, 'footL', -0.3, 0, 0);
-      R(S, 'thighR', -1.45, -0.2, -0.2); R(S, 'kneeR', 0.5, 0, 0); R(S, 'footR', 0.4, 0, 0);
-      R(S, 'shoulderL', 0.15, 0, 0.35); R(S, 'elbowL', -0.3, 0, 0); R(S, 'handL', 0.3, 0, 0);
-      R(S, 'shoulderR', -0.25, 0, -0.35 + jit(0.8, 2) * 0.1 * twitch); R(S, 'elbowR', -0.5, 0, 0); R(S, 'handR', 0.2, 0, 0);
+      R(S, 'neck', 0.5, 0.1, 0.2); R(S, 'head', 0.4 + jit(t, 0.4) * 0.05 * twitch, 0.35, 0.35);
+      legIK(rig, S, 1, DORM.lx, P.ankle, DORM.lz, 0.06, 0.2, 1);
+      legIK(rig, S, -1, DORM.rx, DORM.ry, DORM.rz, DORM.rPitch, -0.4, 1);
+      R(S, 'shoulderL', 0.15, 0, 0.3); R(S, 'elbowL', -0.3, 0, 0); R(S, 'handL', 0.3, 0, 0);
+      R(S, 'shoulderR', -0.25, 0, -0.35 + jit(t, 0.8, 2) * 0.1 * twitch); R(S, 'elbowR', -0.5, 0, 0); R(S, 'handR', 0.2, 0, 0);
+      floor = 1;
+      plateT = 1; drop = PLATE_DROP.dormant;
       break;
     }
     case 'rising': {
-      // 1.6 s, jerky: stutter from the slump to standing
+      // 1.6 s, jerky: gather the stretched leg, then push up and shuffle the
+      // feet under the hips (feet stay planted by IK the whole way)
       const r = clamp01(st / 1.6);
       const steps = 6, sr = r * steps, fi = Math.floor(sr);
       const e = clamp01((fi + Math.pow(smooth(sr - fi), 3)) / steps);
       const ee = smooth(e);
-      const jolt = (1 - r) * jit(2.2) * 0.25;
-      S.hp.set(0, lerp(0.2, baseHips, ee), lerp(-0.05, 0, ee));
-      S.hq.setFromEuler(_e.set(lerp(-0.25, 0.2, ee) + 0.3 * Math.sin(ee * PI), 0, lerp(0.06, 0, ee)));
-      R(S, 'torso', lerp(-0.1, hunch, ee) + 0.4 * Math.sin(ee * PI), 0, 0.1);
-      R(S, 'chest', lerp(0.25, hunch, ee), 0, 0.05);
-      R(S, 'neck', lerp(0.5, 0.45, ee) + jolt, 0, 0.1);
-      R(S, 'head', lerp(0.4, -0.35, ee) + jolt * 1.5, jit(1.3) * 0.5 * (1 - r), 0.3);
-      R(S, 'thighL', lerp(-1.35, -0.05, ee), 0, 0.05); R(S, 'kneeL', lerp(1.9, 0.12, ee), 0, 0); R(S, 'footL', lerp(-0.3, -0.05, ee), 0, 0);
-      R(S, 'thighR', lerp(-1.45, 0.02, ee), 0, -0.05); R(S, 'kneeR', lerp(0.5, 0.1, ee), 0, 0); R(S, 'footR', lerp(0.4, -0.1, ee), 0, 0);
-      R(S, 'shoulderL', lerp(0.15, -0.5, ee) + jolt, 0, 0.3); R(S, 'elbowL', -0.3, 0, 0); R(S, 'handL', 0.3, 0, 0);
-      R(S, 'shoulderR', lerp(-0.25, 0.25, ee), 0, -0.25); R(S, 'elbowR', -0.3, 0, 0); R(S, 'handR', 0.2, 0, 0);
+      const jolt = (1 - r) * jit(t, 2.2) * 0.25;
+      const gA = smooth(ee / 0.35), gB = smooth((ee - 0.3) / 0.7);
+      S.hp.set(0, lerp(DORM.hy, baseHips, gB), lerp(DORM.hz, 0, gB) + 0.12 * Math.sin(gB * PI));
+      S.hq.setFromEuler(_e.set(lerp(DORM.pitch, 0.05, gB) + 0.5 * Math.sin(gB * PI), 0, lerp(DORM.roll, 0, gB)));
+      R(S, 'torso', lerp(-0.1, hunch * 0.9, gB) + 0.3 * Math.sin(gB * PI), 0, lerp(0.1, 0.06, gB));
+      R(S, 'chest', lerp(0.25, hunch * 0.75, gB), 0, 0.05);
+      R(S, 'neck', lerp(0.5, rusher ? 0.5 : 0.55, gB) + jolt, 0, lerp(0.2, -0.05, gB));
+      R(S, 'head', lerp(0.4, -(rusher ? 0.55 : 0.4) - hunch * 1.2, gB) + jolt * 1.5, jit(t, 1.3) * 0.5 * (1 - r), 0.3);
+      const rz = lerp(DORM.rz, 0.3, gA), ry = lerp(DORM.ry, P.ankle, gA), rx = lerp(DORM.rx, -0.14, gA);
+      legIK(rig, S, 1, lerp(DORM.lx, sx, gB), P.ankle, lerp(DORM.lz, 0.04, gB), lerp(0.06, 0, gB), lerp(0.2, 0.12, gB), 1);
+      legIK(rig, S, -1, lerp(rx, -sx, gB), lerp(ry, P.ankle, gB), lerp(rz, -0.03, gB), lerp(DORM.rPitch * (1 - gA), 0, gB), lerp(-0.4, -0.12, gB), 1);
+      R(S, 'shoulderL', lerp(0.15, -0.5, gB) + jolt, 0, lerp(0.3, 0.25, gB)); R(S, 'elbowL', -0.3, 0, 0); R(S, 'handL', 0.3, 0, 0);
+      R(S, 'shoulderR', lerp(-0.25, 0.25, gB), 0, lerp(-0.35, -0.25, gB)); R(S, 'elbowR', -0.3, 0, 0); R(S, 'handR', 0.2, 0, 0);
+      // the Warden picks its plate up off the floor as it stands
+      plateT = 1 - gB; drop = S.plateDrop || PLATE_DROP.dormant;
       break;
     }
     case 'idle': case 'notice': case 'investigate': case 'chase': case 'attack': case 'flinch': case 'lunge': {
@@ -1260,11 +1478,11 @@ export function poseHollow(rig, s, dt) {
       const sway = (1 - walkW) * Math.sin(t * 1.9) * 0.02;
       S.hp.set(sway + 0.02 * Math.sin(ph) * walkW, baseHips - 0.03 * walkW * (0.5 + 0.5 * Math.cos(2 * ph)) - 0.03 * lurch * walkW - (warden ? 0.02 : 0), 0);
       S.hq.setFromEuler(_e.set(0.05 + 0.08 * walkW, -0.12 * Math.cos(ph) * walkW, 0.06 * Math.sin(ph) * walkW + 0.05 * (state === 'chase' ? 1 : 0) + sway * 1.5));
-      setStand(0.12 * walkW + 0.1 * lurch, 0, walkW);
-      walkLegs(spd, state === 'chase' && !rusher);
+      hollowStand(S, rusher, hunch, t, 0.12 * walkW + 0.1 * lurch, 0, walkW);
+      hollowLegs(rig, S, spd, state === 'chase' && !rusher);
       // head: twitches, scanning, the snap of noticing
-      const snapJ = Math.sin(t * 2.3) > 0.93 ? jit(3) * 0.6 : 0;
-      if (state === 'idle') Radd(S, 'head', snapJ * 0.3, snapJ, jit(0.7) * 0.15);
+      const snapJ = Math.sin(t * 2.3) > 0.93 ? jit(t, 3) * 0.6 : 0;
+      if (state === 'idle') Radd(S, 'head', snapJ * 0.3, snapJ, jit(t, 0.7) * 0.15);
       if (state === 'investigate') Radd(S, 'head', 0, Math.sin(t * 0.9) * 1.05, 0);
       if (state === 'notice') {
         const n = clamp01(st / 0.4);
@@ -1277,18 +1495,18 @@ export function poseHollow(rig, s, dt) {
       const sw = Math.sin(ph) * 0.35 * walkW;
       if (state === 'chase' || state === 'investigate') {
         const reach = state === 'chase' ? 1 : 0.35;
-        R(S, 'shoulderL', lerp(-0.2, -1.25, reach) + jit(0.9) * 0.15, -0.1, 0.12);
+        R(S, 'shoulderL', lerp(-0.2, -1.25, reach) + jit(t, 0.9) * 0.15, -0.1, 0.12);
         R(S, 'elbowL', -0.2 - 0.2 * (1 - reach), 0, 0);
         R(S, 'shoulderR', 0.22 + sw * 0.5 + 0.1 * lurch, 0, -0.22); R(S, 'elbowR', -0.06, 0, 0);
         if (rusher) { R(S, 'shoulderL', 0.6 - sw, 0, 0.35); R(S, 'shoulderR', 0.6 + sw, 0, -0.35); R(S, 'elbowL', -0.5, 0, 0); R(S, 'elbowR', -0.5, 0, 0); }
       } else {
-        R(S, 'shoulderL', 0.05 + jit(0.5, 1) * 0.06, 0.1, 0.12); R(S, 'elbowL', -0.18, 0, 0);
-        R(S, 'shoulderR', 0.1 + jit(0.45, 2) * 0.05, -0.1, -0.16); R(S, 'elbowR', -0.1, 0, 0);
+        R(S, 'shoulderL', 0.05 + jit(t, 0.5, 1) * 0.06, 0.1, 0.12); R(S, 'elbowL', -0.18, 0, 0);
+        R(S, 'shoulderR', 0.1 + jit(t, 0.45, 2) * 0.05, -0.1, -0.16); R(S, 'elbowR', -0.1, 0, 0);
       }
       R(S, 'handL', 0.2, 0, 0); R(S, 'handR', 0.25, 0, 0);
       if (rusher && state !== 'chase' && state !== 'investigate') {
-        R(S, 'shoulderL', -0.45 + jit(0.5, 1) * 0.08, 0.2, 0.2); R(S, 'elbowL', -0.35, 0, 0);
-        R(S, 'shoulderR', -0.35 + jit(0.45, 2) * 0.08, -0.2, -0.24); R(S, 'elbowR', -0.3, 0, 0);
+        R(S, 'shoulderL', -0.45 + jit(t, 0.5, 1) * 0.08, 0.2, 0.2); R(S, 'elbowL', -0.35, 0, 0);
+        R(S, 'shoulderR', -0.35 + jit(t, 0.45, 2) * 0.08, -0.2, -0.24); R(S, 'elbowR', -0.3, 0, 0);
       }
       if (state === 'attack') {
         // 0..1 wind-up, 1..1.3 strike, 1.3..3 recover
@@ -1314,9 +1532,11 @@ export function poseHollow(rig, s, dt) {
         Radd(S, 'head', -0.3 * wind - 0.4 * leap, 0, 0);
         R(S, 'shoulderL', lerp(0.5 * wind, -1.6, leap), 0, 0.2); R(S, 'shoulderR', lerp(0.5 * wind, -1.6, leap), 0, -0.2);
         R(S, 'elbowL', -0.3, 0, 0); R(S, 'elbowR', -0.3, 0, 0);
-        const la = lerp(-0.6 * wind, -0.4, leap), lb = lerp(1.2 * wind, 0.3, leap);
-        R(S, 'thighL', la, 0, 0.08); R(S, 'kneeL', lb, 0, 0); R(S, 'footL', -la - lb, 0, 0);
-        R(S, 'thighR', lerp(-0.2 * wind, 0.5, leap), 0, -0.08); R(S, 'kneeR', lerp(1.0 * wind, 0.4, leap), 0, 0); R(S, 'footR', lerp(-0.5 * wind, 0.3, leap), 0, 0);
+        // legs by IK: a crouched split stance on the wind-up (rear heel up),
+        // then both feet tuck up and trail through the leap
+        const aL = lerp(0, -0.6, leap), aR = lerp(-0.35 * wind, -0.9, leap);
+        legIK(rig, S, 1, sx, Math.max(soleLift(aL, P.ankle), P.ankle + 0.14 * leap), lerp(0.16, -0.08, leap), aL, 0.12, 1);
+        legIK(rig, S, -1, -sx, Math.max(soleLift(aR, P.ankle), P.ankle + 0.26 * leap), lerp(-0.26, -0.5, leap), aR, -0.12, 1);
       }
       if (warden && state !== 'lunge') {
         // plate held up in guard across the left flank
@@ -1325,54 +1545,81 @@ export function poseHollow(rig, s, dt) {
         armIK(rig, S, 1, 0.03 + 0.02 * Math.sin(t * 1.3), 1.06 + 0.1 * bash, 0.3 + 0.2 * bash, 1);
         R(S, 'handL', 0.1, 0, 0);
       }
+      // hurt jolt (legacy field)
+      if (hurt > 0) {
+        Radd(S, 'torso', -hurt * 0.7, 0, 0);
+        Radd(S, 'head', -hurt * 0.5, 0, hurt * 0.4);
+      }
+      // dropped left shoulder reads in the pose too
+      Radd(S, 'shoulderL', 0, 0, 0.04);
       break;
     }
     default: {
-      // lying states: knockdown → down (on its back, core up) → dead; stomped; burning → ash
-      lying = true;
+      // Lying states. knockdown: thrown on its back, knees up, still kicking.
+      // down: sprawled half on its side, knee up, core facing up (revive tell).
+      // dead: flat and still, head rolled away. stomped: the down body with
+      // the head crushed flat and the arms jerked out. burning → ash: curl.
+      floor = 1;
       const fall = state === 'knockdown' ? clamp01(st / 0.6) : state === 'down' || state === 'stomped' || state === 'burning' ? clamp01(st / 0.55) : 1;
       const e = smooth(fall);
       const still = state === 'dead' || state === 'ash';
       const tw = still ? 0 : state === 'knockdown' ? 1 : twitch;
+      const roll = state === 'dead' ? 0.14 : state === 'knockdown' ? -0.1 : state === 'stomped' ? -0.08 : -0.25;
       S.hp.set(0, lerp(baseHips * 0.7, 0.14, e * e), lerp(0, -0.35, e));
-      S.hq.setFromEuler(_e.set(lerp(-0.4, -PI / 2 + 0.06, e), 0, lerp(0, -0.25, e)));
-      R(S, 'torso', -0.05, 0, 0.05); R(S, 'chest', 0.05, 0.1, 0);
-      R(S, 'neck', 0.3, 0.2, 0); R(S, 'head', 0.25, 0.85, 0.2);
+      S.hq.setFromEuler(_e.set(lerp(-0.4, -PI / 2 + 0.06, e), 0, lerp(0, roll, e)));
+      plateT = state === 'dead' || state === 'ash' ? 1 : e;
+      drop = state === 'ash' || state === 'burning' ? PLATE_DROP.ash : PLATE_DROP.lying;
       if (state === 'knockdown') {
-        // thrown backward: arms flung up, legs kicking
+        R(S, 'torso', -0.08, 0, 0.04); R(S, 'chest', 0.0, 0.06, 0);
+        R(S, 'neck', -0.12, 0.1, 0); R(S, 'head', -0.25, 0.3, 0.1);
         R(S, 'shoulderL', -2.3 * e, 0, 0.5); R(S, 'elbowL', -0.5, 0, 0); R(S, 'handL', 0.3, 0, 0);
         R(S, 'shoulderR', -2.1 * e, 0, -0.6); R(S, 'elbowR', -0.4, 0, 0); R(S, 'handR', 0.2, 0, 0);
-        R(S, 'thighL', -0.7 * e, 0, 0.12); R(S, 'kneeL', 1.1 * e, 0, 0); R(S, 'footL', 0.5, 0, 0);
-        R(S, 'thighR', -0.3, 0, -0.1); R(S, 'kneeR', 0.4, 0, 0); R(S, 'footR', 0.6, 0.2, 0);
+        // feet stay planted while it sits back and falls; the right leg kicks
+        const kick = Math.max(0, jit(t, 1.2, 3)) * tw;
+        legIK(rig, S, 1, 0.19, P.ankle, 0.1, 0.1, 0.35, 1);
+        legIK(rig, S, -1, -0.2, P.ankle + 0.16 * kick, 0.14 + 0.38 * kick, 0.1 + 0.6 * kick, -0.3, 1);
+      } else if (state === 'dead') {
+        R(S, 'torso', 0.02, 0, -0.03); R(S, 'chest', -0.03, -0.05, 0);
+        R(S, 'neck', 0.12, -0.25, 0); R(S, 'head', 0.1, -1.05, -0.15);
+        R(S, 'shoulderL', 0.1, 0, 0.45 * e); R(S, 'elbowL', -0.15, 0, 0); R(S, 'handL', 0.2, 0, 0);
+        R(S, 'shoulderR', -0.6 * e, 0, -1.05 * e); R(S, 'elbowR', -0.5, 0, 0); R(S, 'handR', 0.2, 0, 0);
+        R(S, 'thighL', -0.04, 0.35, 0.2); R(S, 'kneeL', 0.08, 0, 0); R(S, 'footL', 0.6, 0.2, 0);
+        R(S, 'thighR', -0.02, -0.4, -0.14); R(S, 'kneeR', 0.12, 0, 0); R(S, 'footR', 0.7, -0.2, 0);
       } else {
-        // down / dead: one arm out, one across the belly, a knee up (down) or dropped (dead)
-        const k = state === 'dead' ? 0.35 : 1;
+        // down (and stomped / burning start from it): one arm out, one across the belly, a knee up
+        R(S, 'torso', -0.05, 0, 0.05); R(S, 'chest', 0.05, 0.1, 0);
+        R(S, 'neck', 0.3, 0.2, 0); R(S, 'head', 0.25, 0.85, 0.2);
         R(S, 'shoulderL', -0.5 * e, 0, 1.25 * e); R(S, 'elbowL', -0.7, 0, 0); R(S, 'handL', 0.3, 0, 0);
         R(S, 'shoulderR', -0.35 * e, -0.4, -0.18); R(S, 'elbowR', -1.3 * e, 0, 0); R(S, 'handR', 0.2, 0, 0);
-        R(S, 'thighL', -0.75 * k * e, 0.2, 0.2); R(S, 'kneeL', 1.3 * k * e, 0, 0); R(S, 'footL', 0.6, 0, 0);
+        R(S, 'thighL', -0.75 * e, 0.2, 0.2); R(S, 'kneeL', 1.3 * e, 0, 0); R(S, 'footL', 0.6, 0, 0);
         R(S, 'thighR', -0.1, -0.1, -0.16); R(S, 'kneeR', 0.25, 0, 0); R(S, 'footR', 0.8, 0.3, 0);
       }
       if (tw > 0) {
-        Radd(S, 'shoulderL', 0, 0, jit(3) * 0.2 * tw);
-        Radd(S, 'head', jit(2.7, 1) * 0.12 * tw, jit(1.9, 2) * 0.2 * tw, 0);
-        Radd(S, 'kneeL', Math.max(0, jit(2.2, 3)) * 0.4 * tw, 0, 0);
-        Radd(S, 'kneeR', Math.max(0, jit(1.7, 4)) * 0.3 * tw, 0, 0);
+        Radd(S, 'shoulderL', 0, 0, jit(t, 3) * 0.2 * tw);
+        Radd(S, 'head', jit(t, 2.7, 1) * 0.12 * tw, jit(t, 1.9, 2) * 0.2 * tw, 0);
+        if (state !== 'knockdown') {
+          Radd(S, 'kneeL', Math.max(0, jit(t, 2.2, 3)) * 0.4 * tw, 0, 0);
+          Radd(S, 'kneeR', Math.max(0, jit(t, 1.7, 4)) * 0.3 * tw, 0, 0);
+        }
       }
       if (state === 'down' && reviving > 0) {
         const r = reviving * reviving;
-        Radd(S, 'chest', jit(4.1) * 0.12 * r, 0, jit(3.3, 1) * 0.1 * r);
-        Radd(S, 'head', jit(5.3, 2) * 0.3 * r, jit(4.7, 3) * 0.3 * r, 0);
-        Radd(S, 'shoulderL', jit(3.9, 4) * 0.35 * r, 0, 0); Radd(S, 'shoulderR', jit(4.4, 5) * 0.35 * r, 0, 0);
-        Radd(S, 'thighL', jit(3.1, 6) * 0.15 * r, 0, 0); Radd(S, 'kneeR', Math.abs(jit(3.6, 7)) * 0.35 * r, 0, 0);
-        S.hp.y += Math.abs(jit(4.8, 8)) * 0.02 * r;
+        Radd(S, 'chest', jit(t, 4.1) * 0.12 * r, 0, jit(t, 3.3, 1) * 0.1 * r);
+        Radd(S, 'head', jit(t, 5.3, 2) * 0.3 * r, jit(t, 4.7, 3) * 0.3 * r, 0);
+        Radd(S, 'shoulderL', jit(t, 3.9, 4) * 0.35 * r, 0, 0); Radd(S, 'shoulderR', jit(t, 4.4, 5) * 0.35 * r, 0, 0);
+        Radd(S, 'thighL', jit(t, 3.1, 6) * 0.15 * r, 0, 0); Radd(S, 'kneeR', Math.abs(jit(t, 3.6, 7)) * 0.35 * r, 0, 0);
+        floorY = Math.abs(jit(t, 4.8, 8)) * 0.02 * r;
       }
       if (state === 'stomped') {
+        // head crushed flat (the head lies face-sideways: its local X is
+        // vertical), chest pressed down, arms jerked out, the knee dropped
         const c = smooth(st / 0.12);
-        S.hs.set(1 + 0.2 * c, 1 - 0.62 * c, 1 + 0.12 * c);
-        S.hp.y -= 0.03 * c;
-        R(S, 'chest', -0.12 * c, 0.1, 0); R(S, 'neck', 0.1, 0.2, 0); R(S, 'head', 0.05, 0.7, 0.1);
+        S.hs.set(1 - 0.55 * c, 1 + 0.1 * c, 1 + 0.25 * c);
+        R(S, 'torso', -0.02, 0, 0.02); R(S, 'chest', -0.1 * c, 0.05, 0);
+        R(S, 'neck', 0.12, 0.35, 0); R(S, 'head', 0.05, 1.35, 0.08);
         R(S, 'shoulderL', -0.3, 0, 1.35); R(S, 'shoulderR', -0.3, 0, -1.3); R(S, 'elbowL', -0.3, 0, 0); R(S, 'elbowR', -0.4, 0, 0);
         R(S, 'thighL', -0.1, 0, 0.3); R(S, 'kneeL', 0.2, 0, 0); R(S, 'thighR', -0.05, 0, -0.3); R(S, 'kneeR', 0.15, 0, 0);
+        R(S, 'footL', 0.7, 0.3, 0); R(S, 'footR', 0.7, -0.3, 0);
       }
       if (state === 'burning' || state === 'ash') {
         // writhe, then curl onto the side
@@ -1384,24 +1631,37 @@ export function poseHollow(rig, s, dt) {
         R(S, 'neck', lerp(0.3, 0.6, curl), 0, 0); R(S, 'head', lerp(0.25, 0.6, curl), lerp(0.7, 0.1, curl), 0);
         R(S, 'thighL', lerp(0.25, -1.9, curl), 0, 0.1); R(S, 'kneeL', lerp(0.55, 2.3, curl), 0, 0);
         R(S, 'thighR', lerp(-0.15, -1.7, curl), 0, -0.1); R(S, 'kneeR', lerp(0.2, 2.4, curl), 0, 0);
-        R(S, 'shoulderL', lerp(-2.0, -1.5, curl) + jit(1.4) * 0.8 * wr, 0, 0.3 + jit(1.1, 1) * 0.5 * wr);
-        R(S, 'shoulderR', lerp(-2.0, -1.4, curl) + jit(1.2, 2) * 0.8 * wr, 0, -0.3 + jit(1.3, 3) * 0.5 * wr);
-        R(S, 'elbowL', lerp(-0.5, -2.2, curl) + jit(1.6, 4) * 0.5 * wr, 0, 0); R(S, 'elbowR', lerp(-0.5, -2.3, curl), 0, 0);
+        R(S, 'shoulderL', lerp(-2.0, -1.5, curl) + jit(t, 1.4) * 0.8 * wr, 0, 0.3 + jit(t, 1.1, 1) * 0.5 * wr);
+        R(S, 'shoulderR', lerp(-2.0, -1.4, curl) + jit(t, 1.2, 2) * 0.8 * wr, 0, -0.3 + jit(t, 1.3, 3) * 0.5 * wr);
+        R(S, 'elbowL', lerp(-0.5, -2.2, curl) + jit(t, 1.6, 4) * 0.5 * wr, 0, 0); R(S, 'elbowR', lerp(-0.5, -2.3, curl), 0, 0);
+        plateT = state === 'ash' ? 1 : Math.max(e, curl);
+      }
+      if (warden && state !== 'ash' && !(state === 'burning' && st > 1.2)) {
+        // the plate arm lies out on the dropped plate (the knockdown throws
+        // only the right arm up)
+        const w = state === 'knockdown' ? e : 1;
+        Rmix(S, 'shoulderL', 0.2, 0, 0.8, w); Rmix(S, 'elbowL', -0.15, 0, 0, w); Rmix(S, 'handL', 0.2, 0, 0, w);
       }
       break;
     }
   }
-  if (!lying) {
-    // hurt jolt (legacy field)
-    if (hurt > 0) {
-      Radd(S, 'torso', -hurt * 0.7, 0, 0);
-      Radd(S, 'head', -hurt * 0.5, 0, hurt * 0.4);
-    }
-    // dropped left shoulder reads in the pose too
-    Radd(S, 'shoulderL', 0, 0, 0.04);
-  }
   rig.gaitPhase = S.gph;
   commit(rig, S, dt);
+  // rest lying bodies on the floor; during blends out of a lying state, only
+  // lift (never let a crossfade sink the body into the floor)
+  let haveM = false;
+  if (floor) { settleOnFloor(rig, S, floorY); haveM = true; }
+  else if (S.fadeT < S.fadeDur) {
+    boneMatrices(rig); haveM = true;
+    const lo = lowestPoint(rig);
+    if (lo < -0.004) { rig.hips.position.y -= lo; S.lastHp.y -= lo; for (let i = 1; i < NB; i++) rig._M[i].elements[13] -= lo; }
+  }
+  if (warden && rig.plate && rig._plateHeld) {
+    const rate = plateT > S.plateW ? 7 : 3;
+    S.plateW = snap ? plateT : S.plateW + (plateT - S.plateW) * (1 - Math.exp(-dt * rate));
+    if (drop) S.plateDrop = drop;
+    placePlate(rig, S, haveM, S.plateDrop);
+  }
 }
 
 // ------------------------------------------------------------------ wireframe

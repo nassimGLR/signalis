@@ -22,6 +22,7 @@ export const RECT = {
   pips: [40, 32, 8, 8],
   seam: [48, 32, 16, 16],
   eyeRed: [64, 32, 8, 8],
+  band: [72, 32, 28, 8],
 };
 // uv of a pixel coordinate (CanvasTexture has flipY = true)
 export const uvOf = (px, py) => [px / ATLAS_W, 1 - py / ATLAS_H];
