@@ -182,6 +182,16 @@ export class Cursor {
     return w;
   }
 
+  textWidth(text, font = FONT_LABEL, track = 1.3) {
+    const g = this.g;
+    g.save();
+    g.font = font;
+    if ('letterSpacing' in g) g.letterSpacing = track + 'px';
+    const w = g.measureText(text).width;
+    g.restore();
+    return w;
+  }
+
   keyCap(text, x, y, color) {
     const g = this.g;
     g.save();
@@ -225,8 +235,11 @@ export class Cursor {
     g.globalAlpha = a;
     this.corners(x0, y0, x1, y1, 6, 2, color);
     if (b.door) this.doorGlyph(b.x, b.y, color);
-    let lx = Math.round(x1 + 8);
     const ly = Math.round(y0);
+    // key cap, verb and footprints sit right of the box, or left of it when
+    // they would run off the screen
+    const need = (b.key ? 26 : 0) + (b.label ? this.textWidth(b.label) + 4 : 0) + (b.far ? 12 : 0);
+    let lx = x1 + 8 + need > this.w - 4 ? Math.round(x0 - 8 - need) : Math.round(x1 + 8);
     if (b.key) lx += this.keyCap(b.key, lx, ly - 1, color) + 4;
     if (b.label) lx += this.label(b.label, lx, ly, color) + 4;
     if (b.far) this.footprints(lx + 2, ly + 1, color);
@@ -240,7 +253,8 @@ export class Cursor {
     g.globalAlpha = alpha;
     this.corners(x - 9, y - 9, x + 9, y + 9, 5, 1, color);
     this.bar(x - 1, y - 1, 3, 3, this.col.ink); this.bar(x, y, 1, 1, color);
-    let lx = x + 14;
+    const need = (label ? this.textWidth(label) + 4 : 0) + (far ? 12 : 0);
+    let lx = x + 14 + need > this.w - 4 ? x - 14 - need : x + 14;
     if (label) lx += this.label(label, lx, y - 6, color) + 4;
     if (far) this.footprints(lx + 1, y - 5, color);
     g.restore();

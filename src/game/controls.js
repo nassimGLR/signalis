@@ -28,6 +28,14 @@ const DEFAULTS = {
 };
 const BONE = 0xe8e2d4;
 
+// Camera (used by game.updateCamera): pitch and FOV in degrees, distances in metres.
+export const CAM = { pitch: 62, fov: 24, dist: 17.5, lookY: 0.6, margin: 1.0 };
+// Bracket verbs for fixtures (anything not listed reads EXAMINE).
+export const FIXTURE_VERB = {
+  save: 'RECORD', box: 'OPEN', relay: 'OPERATE', console: 'OPERATE', breaker: 'OPERATE',
+  locker_pistol: 'OPEN', locker_keycard: 'OPEN', cabinet_fuse: 'OPEN', memory_window: 'LOOK',
+};
+
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export class Controls {

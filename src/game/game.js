@@ -12,15 +12,9 @@ import { ROOMS, PICKUPS, ENEMIES, FIXTURES, PLAYER_START } from './map.js';
 import { INTRO, EXAMINE, ENDING } from './story.js';
 import { UI } from '../ui/ui.js';
 import { M } from './props.js';
-import { Controls } from './controls.js';
+import { Controls, CAM, FIXTURE_VERB } from './controls.js';
 
 const SAVE_KEY = 'lethe7-save';
-// Camera (workstream C): pitch and FOV in degrees, distance and margins in metres.
-const CAM = { pitch: 62, fov: 24, dist: 17.5, lookY: 0.6, margin: 1.0 };
-const FIXTURE_VERB = {
-  save: 'RECORD', box: 'OPEN', relay: 'OPERATE', console: 'OPERATE', breaker: 'OPERATE',
-  locker_pistol: 'OPEN', locker_keycard: 'OPEN', cabinet_fuse: 'OPEN', memory_window: 'LOOK',
-};
 const RELAY_CODE = '7304';
 const MAG = 8;
 
@@ -430,8 +424,10 @@ export class Game {
     const C = this.controls, m = this.input.mouse;
     const gp = !snap && C && C.cursorActive && this.input.lastDevice === 'kb' && m.inWindow && this.mode === 'play' && !this.paused ? C.groundAt(0) : null;
     if (gp) {
+      // measured from the view centre, not from Wren, so the camera moving
+      // doesn't shift what's under a still pointer (no feedback loop)
       const k = P.aiming ? 0.25 : 0.15;
-      lx = (gp.x - P.pos.x) * k; lz = (gp.z - P.pos.z) * k;
+      lx = (gp.x - this.camTarget.x) * k; lz = (gp.z - this.camTarget.z) * k;
     } else {
       const ahead = P.aiming ? 1.2 : 0.9 * Math.min(1, P.speed / 2);
       lx = Math.sin(P.yaw) * ahead; lz = Math.cos(P.yaw) * ahead;

@@ -342,10 +342,23 @@ if (scenario === 'mouse') {
   const p1 = await P();
   check('click-to-go arrives within 0.25 m', arrived && Math.hypot(p1.x - dest.x, p1.z - dest.z) <= 0.25, JSON.stringify(p1));
 
+  // T1b: double-click runs there; a click into the dark goes nowhere
+  await tp(4.2, 38.4, EAST);
+  await sleep(900);
+  const dd = await screenOf(11, 0, 40);
+  await page.mouse.dblclick(Math.round(dd.x), Math.round(dd.y));
+  check('double-click runs to the spot', await until(() => window.__game.ctl.mode === 'path' && window.__game.player.speed > 3.5, 3000), JSON.stringify(await P()));
+  await until(() => window.__game.ctl.mode === 'idle', 6000);
+  const voidPt = await screenOf(1.9, 0, 40.5); // west of the cryo bay: nothing there
+  check('void point is on screen', voidPt.x > 2 && voidPt.x < vw - 2 && voidPt.y > 2 && voidPt.y < vh - 2, JSON.stringify(voidPt));
+  await page.mouse.click(Math.round(voidPt.x), Math.round(voidPt.y));
+  await sleep(300);
+  check('click into the dark starts no walk', (await ctl()).mode === 'idle', JSON.stringify(await ctl()));
+
   // T2: hold LMB toward the east wall: walk, stop at the wall, stop on release
   await tp(8, 40.5, EAST);
   await sleep(800);
-  await moveTo(13.0, 1.2, 40.5);
+  await moveTo(13.3, 0.05, 40.5); // the foot of the east wall
   await page.mouse.down();
   await sleep(700);
   const h1 = await g(() => ({ ctl: window.__game.ctl, x: window.__game.player.pos.x, speed: window.__game.player.speed }));
