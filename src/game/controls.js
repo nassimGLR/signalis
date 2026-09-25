@@ -292,6 +292,7 @@ export class Controls {
     if (this.mode === 'hold') this.mode = 'idle';
     this.hover = null;
     if (this.aim.active) { this.aim.active = false; this.aim.lock = null; this.aim.releaseT = performance.now(); }
+    this.aimToggle = false; // a toggled ready stance doesn't survive a menu
     this.updateMarker(dt);
     void G;
   }
@@ -623,7 +624,7 @@ export class Controls {
     if (d.open) return;
     if (d.locked) { this.cancel(true); return; }
     this.ownScript = true;
-    Promise.resolve(G.script(() => G.useDoor(d))).finally(() => { this.ownScript = false; });
+    Promise.resolve(G.script(() => G.useDoor(d))).catch((e) => console.error(e)).finally(() => { this.ownScript = false; });
   }
 
   // ------------------------------------------------------------------ using a thing
@@ -667,7 +668,7 @@ export class Controls {
     this.ownScript = true;
     const through = c.kind === 'door' && c.door ? c.door : null;
     const wasOpen = through ? through.open : false;
-    Promise.resolve(G.script(() => c.run())).finally(() => {
+    Promise.resolve(G.script(() => c.run())).catch((e) => console.error(e)).finally(() => {
       this.ownScript = false;
       if (through && !wasOpen && through.open && this.mode === 'idle' && !this.act) {
         const d = through, cx = d.x + 0.5, cz = d.z + 0.5;
