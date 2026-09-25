@@ -135,28 +135,36 @@ const BUILDERS = {
     return g;
   },
 
-  // Sealant: an aerosol can with a trigger cap and a printed band.
+  // Sealant: a squat pressure canister for hull patching — a valve block with
+  // a pressure gauge on top and a short applicator wand bent forward.
   sealant() {
     const g = new THREE.Group();
     const band = texCanvas(64, 32, (c, w, h) => {
-      c.fillStyle = '#d9d2c2'; c.fillRect(0, 0, w, h);
-      c.fillStyle = '#b3141f'; c.fillRect(0, 7, w, 16);
-      txt(c, 'SEALANT', 3, 19, 11, '#f0ebe0', 'Sofia Sans Condensed, sans-serif', '800');
-      txt(c, 'ГЕРМЕТИК', 36, 19, 7, '#f0ebe0');
-      for (let i = 0; i < 16; i++) { c.fillStyle = i % 2 ? '#1c1a18' : '#e0c85a'; c.fillRect(i * 4, 26, 4, 3); }
-      txt(c, 'L7-HS/40', 3, 5, 5, '#5a5650');
+      c.fillStyle = '#cfc9ba'; c.fillRect(0, 0, w, h);
+      for (let i = -2; i < 18; i++) { c.fillStyle = '#e0c85a'; c.beginPath(); c.moveTo(i * 4, 0); c.lineTo(i * 4 + 2, 0); c.lineTo(i * 4 + 6, 6); c.lineTo(i * 4 + 4, 6); c.fill(); }
+      c.fillStyle = '#1c1a18'; c.fillRect(0, 6, w, 1);
+      txt(c, 'HULL SEALANT', 3, 17, 8, '#1c1a18', 'Sofia Sans Condensed, sans-serif', '800');
+      txt(c, 'ГЕРМЕТИК · 40', 3, 25, 6, '#3a3834');
+      c.fillStyle = '#b3141f'; c.fillRect(48, 11, 12, 14);
+      txt(c, 'L7', 49, 22, 8, '#f0ebe0', 'Sofia Sans Condensed, sans-serif', '800');
     });
     band.wrapS = THREE.RepeatWrapping;
-    const body = mapMat(band);
-    const top = lam(0xc9c3b4), metal = lam(C.steel), dark = lam(C.gunDark);
-    add(g, CY(0.027, 0.027, 0.11, 12), [body, top, top], 0, 0, 0);
-    add(g, CY(0.019, 0.027, 0.014, 12), metal, 0, 0.062, 0);
-    add(g, CY(0.009, 0.009, 0.01, 8), metal, 0, 0.074, 0);
-    add(g, B(0.03, 0.02, 0.022), dark, 0.004, 0.088, 0);                      // actuator
-    add(g, B(0.012, 0.006, 0.006), dark, 0.024, 0.092, 0);                    // nozzle
-    add(g, B(0.006, 0.026, 0.014), dark, -0.012, 0.074, 0, 0, 0, 0.35);       // trigger lever
-    add(g, CY(0.0275, 0.0275, 0.006, 12), metal, 0, -0.056, 0);               // base rim
-    g.userData.view = { yaw: -0.4, pitch: 0.3 };
+    const gauge = texCanvas(16, 16, (c) => {
+      c.fillStyle = '#e8e2d4'; c.beginPath(); c.arc(8, 8, 8, 0, 7); c.fill();
+      c.strokeStyle = '#1c1a18'; c.lineWidth = 1; c.beginPath(); c.arc(8, 8, 6, Math.PI * 0.8, Math.PI * 2.2); c.stroke();
+      c.strokeStyle = '#b3141f'; c.beginPath(); c.moveTo(8, 8); c.lineTo(12, 4); c.stroke();
+    });
+    const body = mapMat(band), cap = lam(0xb9b3a4), metal = lam(C.steel), dark = lam(C.gunDark);
+    add(g, CY(0.031, 0.031, 0.078, 12), [body, cap, cap], 0, -0.01, 0);
+    add(g, new THREE.SphereGeometry(0.031, 12, 4, 0, Math.PI * 2, 0, Math.PI / 2), cap, 0, 0.029, 0);
+    add(g, CY(0.0315, 0.0315, 0.006, 12), dark, 0, -0.049, 0);                 // foot ring
+    add(g, B(0.022, 0.018, 0.02), metal, 0, 0.066, 0);                          // valve block
+    add(g, CY(0.009, 0.009, 0.006, 10), metal, 0, 0.066, 0.013, Math.PI / 2, 0, 0);
+    add(g, CY(0.0085, 0.0085, 0.001, 10), [mapMat(gauge), mapMat(gauge), mapMat(gauge)], 0, 0.066, 0.0165, Math.PI / 2, 0, 0);
+    add(g, CY(0.004, 0.004, 0.05, 6), dark, 0.03, 0.074, 0, 0, 0, Math.PI / 2 - 0.2); // wand
+    add(g, CY(0.0025, 0.005, 0.014, 6), lam(C.red), 0.058, 0.08, 0, 0, 0, Math.PI / 2 - 0.2); // tip
+    add(g, B(0.006, 0.02, 0.012), dark, -0.012, 0.08, 0, 0, 0, 0.5);            // lever
+    g.userData.view = { yaw: -0.35, pitch: 0.34 };
     return g;
   },
 

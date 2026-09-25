@@ -289,7 +289,7 @@ body.modal-open #toasts, body.modal-open #hint, body.modal-open #sector, body.mo
 .typed .red { color: var(--red-hi); }
 .typed .voice { font-family: var(--font-ui); font-weight: 500; font-size: 1.4em; line-height: 1.45; color: var(--teal); }
 .typed .big { font-size: 2.1em; }
-.typed-art { display: block; width: min(640px, 80vw); margin: 0 auto 30px; image-rendering: pixelated; animation: dissolveIn 900ms steps(1); -webkit-mask-size: 8px 8px; mask-size: 8px 8px; }
+.typed-art { display: block; width: min(640px, 80vw); margin: 0 0 30px; image-rendering: pixelated; animation: dissolveIn 900ms steps(1); -webkit-mask-size: 8px 8px; mask-size: 8px 8px; }
 .typed-code { position: absolute; left: 24px; top: 20px; font-family: var(--font-mono); font-size: 10px; color: var(--grey); }
 .skip { position: absolute; right: 24px; bottom: 20px; display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--bone-dim); }
 

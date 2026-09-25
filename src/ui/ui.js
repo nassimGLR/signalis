@@ -805,7 +805,7 @@ export class UI {
   }
 
   // ---------------------------------------------------------------- typed text screens
-  typed(lines, { black = true, skippable = true, art = null } = {}) {
+  typed(lines, { black = true, skippable = true, art = null, code = null } = {}) {
     const root = el('div', 'screen typed-screen ' + (black ? 'black' : 'shade'));
     const wrap = el('div', 'typed');
     if (art) {
@@ -813,7 +813,7 @@ export class UI {
       c.className = 'typed-art';
       wrap.appendChild(c);
     }
-    root.appendChild(el('div', 'typed-code', 'L7-OS · WAKE LOG'));
+    root.appendChild(el('div', 'typed-code', esc(code || (art ? 'L7-OS · TRANSMISSION' : 'L7-OS · SYSTEM LOG'))));
     root.appendChild(wrap);
     const skip = el('div', 'skip', skippable ? `${MB('L', '')} continue <i></i> ${K('Esc')} skip` : `${MB('L', '')} continue`);
     root.appendChild(skip);
