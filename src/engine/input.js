@@ -8,6 +8,9 @@
 //    `anyClick` stays "any left press anywhere" for menus and dialogue.
 //  - `leftClick` is a short left press (released within 220 ms and 8 px),
 //    `dblClick` is the second of two clicks within 300 ms and 12 px.
+//  - Every release also records how long the press lasted (`upMs`), how far
+//    the pointer travelled (`upDist`) and whether it was a clean canvas press
+//    (`upOk`), so the controller can read a slow click on the spot as a click.
 //  - `consumeMouse()` drops this frame's edges and marks held buttons stale,
 //    so a click that dismissed a dialog can't turn into a walk or an aim.
 //  - Canvas taps from touch screens feed the same click path (tap-to-go).
@@ -27,6 +30,8 @@ function makeMouse() {
     hit: [false, false, false, false, false],     // canvas press edge this frame
     up: [false, false, false, false, false],      // release edge this frame
     click: [false, false, false, false, false],   // short canvas click edge (on release)
+    upMs: [0, 0, 0, 0, 0], upDist: [0, 0, 0, 0, 0], // the press that ended this frame
+    upOk: [false, false, false, false, false],       // …began on the canvas and wasn't stale
     dbl: [false, false, false, false, false],
     lastClickAt: [0, 0, 0, 0, 0], lastClickX: [0, 0, 0, 0, 0], lastClickY: [0, 0, 0, 0, 0],
     // legacy / contract names
@@ -179,6 +184,9 @@ export class Input {
     m.down[b] = false;
     m.up[b] = true;
     const now = performance.now();
+    m.upMs[b] = now - m.downAt[b];
+    m.upDist[b] = Math.hypot(x - m.downX[b], y - m.downY[b]);
+    m.upOk[b] = m.onCanvas[b] && !m.stale[b];
     if (m.onCanvas[b] && !m.stale[b] && now - m.downAt[b] <= CLICK_MS && Math.hypot(x - m.downX[b], y - m.downY[b]) <= CLICK_PX) {
       m.click[b] = true;
       if (now - m.lastClickAt[b] <= DBL_MS && Math.hypot(x - m.lastClickX[b], y - m.lastClickY[b]) <= DBL_PX) {

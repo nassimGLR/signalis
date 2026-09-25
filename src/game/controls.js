@@ -14,6 +14,8 @@ import { Cursor } from '../ui/cursor.js';
 import { audio } from '../engine/audio.js';
 
 const HOLD_MS = 220;          // press longer than this = hold-walk
+const SLOW_CLICK_MS = 450;    // …but released within this, on the spot, it was a click
+const CLICK_PX = 8;
 const HOLD_DEADZONE = 0.45;   // m: pointer this close to Wren = stand
 const ARRIVE_EPS = 0.18;      // m: waypoint reached
 const FINAL_EPS = 0.08;       // m: destination reached
@@ -344,15 +346,20 @@ export class Controls {
     // ---- aim
     const aimDir = this.updateAim(dt, S, weapon, pointer, movedNow);
     const aiming = this.aim.active;
-    this.hover = ((pointer && m.inside && m.inWindow) || m.tap) && !aiming && this.mode !== 'hold' ? this.pickHover() : null;
 
     // ---- mouse walking
     const go = I.goButton;
     if (m.hit[go]) this.press = { t: now, aimed: aiming };
-    const clicked = (m.click[go] || m.tap) && !(this.press && this.press.aimed && !m.tap);
-    const dbl = m.dbl[go] || (m.tap && m.dbl[0]);
-    if (this.press && !m.down[go]) this.press = null;
+    // A press that outlived the hold threshold but ended quickly, where it
+    // began, was a deliberate slow click: go there (the short nudge it may
+    // have started becomes the start of that walk).
+    const slowClick = !m.click[go] && m.up[go] && m.upOk[go] && m.upMs[go] <= SLOW_CLICK_MS
+      && m.upDist[go] <= CLICK_PX && !!this.press && !this.press.aimed;
     if (this.mode === 'hold' && !I.held(go)) this.mode = 'idle';
+    this.hover = ((pointer && m.inside && m.inWindow) || m.tap) && !aiming && this.mode !== 'hold' ? this.pickHover() : null;
+    const clicked = ((m.click[go] || m.tap) && !(this.press && this.press.aimed && !m.tap)) || slowClick;
+    const dbl = !slowClick && (m.dbl[go] || (m.tap && m.dbl[0]));
+    if (this.press && !m.down[go]) this.press = null;
     if (!aiming && mouseMode && this.press && !this.press.aimed && I.held(go) && now - this.press.t >= HOLD_MS && this.mode !== 'hold') {
       this.cancel();
       this.mode = 'hold';
@@ -419,6 +426,9 @@ export class Controls {
   // ------------------------------------------------------------------ aim
   updateAim(dt, S, weapon, pointer, movedNow) {
     const G = this.game, I = this.input, P = G.player, m = I.mouse, A = this.aim;
+    // pressing the ready button always drops a walk or a pending use, even
+    // with nothing to ready (plan §6.3)
+    if (m.hit[I.readyButton] && !m.stale[I.readyButton] && (this.mode !== 'idle' || this.act)) this.cancel();
     let held = I.aim;
     if (S.aimMode === 'toggle') {
       const rb = I.readyButton;
@@ -753,20 +763,18 @@ export class Controls {
           alpha: hovered ? (c.inReach ? 1 : 0.5) : 0.8,
           far: hovered && !c.inReach, door: c.kind === 'door' && c.inReach,
           key: isKb && keyGlyph ? keyGlyph : null,
+          // label priority when labels crowd: the key target, then nearest first
+          pri: isKb ? -1 : c.dist,
         });
       }
     }
     // focus box around the readied target
     st.focus = null;
     if (A.active && A.lock) {
-      const e = A.lock;
-      const h = e.rig && e.rig.height ? e.rig.height : 1.8;
-      const a = this.worldToScreen(e.pos.x, 0, e.pos.z, { x: 0, y: 0 });
-      const b = this.worldToScreen(e.pos.x, h, e.pos.z, { x: 0, y: 0 });
-      const hp = Math.max(8, Math.hypot(b.x - a.x, b.y - a.y));
-      const size = THREE.MathUtils.lerp(2.4, 1.05, A.focus) * hp;
-      st.focus = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, size, f: A.focus, solid: A.focus >= 0.95, los: A.los, alpha: 1 };
-    }
+      const fr = this.focusFrame(A.lock, dt);
+      const size = THREE.MathUtils.lerp(2.4, 1.1, A.focus) * fr.body;
+      st.focus = { x: fr.x, y: fr.y, size, f: A.focus, solid: A.focus >= 0.95, los: A.los, alpha: 1 };
+    } else this._ff = null;
     // aim readout: only while readied (fades after release)
     st.readout = null;
     const w = G.inv && G.inv.weapon ? G.inv.weapon() : null;
@@ -788,6 +796,57 @@ export class Controls {
     st.spread = A.active && !A.lock ? 10 + 6 * (1 - Math.min(1, A.focus * 2)) : 0;
     const showPtr = S.aimCursor === 'off' ? false : S.aimCursor === 'aiming' ? A.active : true;
     st.pointer = showPtr && m.inWindow;
+  }
+
+  // Where the target's body is on screen, whatever its posture (standing,
+  // slumped against a wall, hunched): the screen bounds of its crown, chest,
+  // hips and feet, a body-wide ring at chest height, and the laser's end dot
+  // (the beam ends on the chest), so the dot always lands inside the box.
+  // Returns the centre and the side of a square around them. The offset from
+  // the feet and the side are smoothed so the walk cycle doesn't make the box
+  // breathe; the lock changing snaps it.
+  focusFrame(e, dt) {
+    const rig = e.rig;
+    const base = this.worldToScreen(e.pos.x, 0, e.pos.z, this._fp || (this._fp = { x: 0, y: 0, behind: false }));
+    const bx = base.x, by = base.y;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const p = this._fq || (this._fq = { x: 0, y: 0, behind: false });
+    const add = (v) => {
+      this.worldToScreen(v.x, v.y, v.z, p);
+      if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+      if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    };
+    const v = this._fv || (this._fv = new THREE.Vector3());
+    let hy = 1.1;
+    if (rig && rig.root && rig.chest && rig.head) {
+      rig.root.updateMatrixWorld(true);
+      add(rig.head.localToWorld(v.set(0, 0.24, 0)));
+      for (const b of ['chest', 'hips', 'footL', 'footR']) {
+        if (!rig[b]) continue;
+        add(rig[b].getWorldPosition(v));
+        if (b === 'chest') hy = Math.max(0.3, v.y);
+      }
+    } else {
+      add(v.set(e.pos.x, 0, e.pos.z));
+      add(v.set(e.pos.x, rig && rig.height ? rig.height : 1.8, e.pos.z));
+    }
+    // a minimum girth (about a body's width) around the chest
+    const r = 0.3;
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      add(v.set(e.pos.x + Math.cos(a) * r, hy, e.pos.z + Math.sin(a) * r));
+    }
+    const P = this.game.player;
+    if (P && P.laserHit === e && P.laserDot) add(P.laserDot.position);
+    const ox = (x0 + x1) / 2 - bx, oy = (y0 + y1) / 2 - by;
+    const body = Math.max(8, x1 - x0, y1 - y0);
+    let f = this._ff;
+    if (!f || f.id !== e.id) f = this._ff = { id: e.id, ox, oy, body };
+    else {
+      const k = 1 - Math.exp(-dt * 10);
+      f.ox += (ox - f.ox) * k; f.oy += (oy - f.oy) * k; f.body += (body - f.body) * k;
+    }
+    return { x: bx + f.ox, y: by + f.oy, body: f.body };
   }
 
   // What the overlay should draw right now.

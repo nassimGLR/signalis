@@ -46,6 +46,9 @@ export class Player {
     this.stepPhase = 0;
     this.fireCd = 0;
     this.recoil = 0;
+    this.aimPitch = 0;        // rad, + = down: the sights dip toward a low target
+    this.laserHit = null;     // the enemy the laser ends on (or null)
+    this._laserEnd = new THREE.Vector3();
     this.time = 0;
     this.turnRate = 0;
     this.locked = false;   // controls disabled
@@ -289,25 +292,38 @@ export class Player {
     poseCustodian(this.rig, {
       speed: gait, phase: this.phase, aiming: this.aiming, time: this.time,
       hurt: this.hurtT, hurtDir: this.hurtDir, limp: level >= 1, condition: level,
-      reload: this.reloadT, recoil: this.recoil,
+      reload: this.reloadT, recoil: this.recoil, aimPitch: this.aiming ? this.aimPitch : 0,
       moveLocal, turn: this.turnRate, look,
       action: this.action, actionT: this.actionT,
     }, dt);
 
-    this.updateLaser(world, ctl.enemies || []);
+    this.updateLaser(world, ctl.enemies || [], dt);
     this.updateLights(dt);
   }
 
-  updateLaser(world, enemies) {
-    if (!this.aiming) { this.laser.visible = this.laserDot.visible = false; return; }
+  updateLaser(world, enemies, dt = 0.016) {
+    if (!this.aiming) { this.laser.visible = this.laserDot.visible = false; this.laserHit = null; this.aimPitch = 0; return; }
     const o = this.muzzleWorld();
     const dx = Math.sin(this.yaw), dz = Math.cos(this.yaw);
     let dist = Math.min(18, world.raycast(o.x, o.z, dx, dz, 18));
+    let hitE = null;
     for (const e of enemies) {
       const t = e.rayHit(o.x, o.z, dx, dz);
-      if (t !== null && t < dist) dist = t;
+      if (t !== null && t < dist) { dist = t; hitE = e; }
     }
-    const end = new THREE.Vector3(o.x + dx * dist, o.y, o.z + dz * dist);
+    // On a body the beam converges on it and ends on the front of its chest,
+    // so it lands on a slumped or crouched target instead of passing over it
+    // (or beside it: the gun is off-centre); the sights dip to match.
+    const end = this._laserEnd.set(o.x + dx * dist, o.y, o.z + dz * dist);
+    if (hitE) {
+      const c = hitE.rig && hitE.rig.chest ? hitE.rig.chest.matrixWorld.elements[13] : 1.1;
+      end.y = Math.min(o.y, Math.max(0.3, c || 1.1));
+      const vx = hitE.pos.x - o.x, vz = hitE.pos.z - o.z, L = Math.hypot(vx, vz);
+      if (L > 0.3) { const t = Math.max(0.1, L - 0.2) / L; end.x = o.x + vx * t; end.z = o.z + vz * t; dist = L; }
+    }
+    const pitch = Math.max(0, Math.min(0.45, Math.atan2(o.y - end.y, Math.max(0.5, dist))));
+    this.aimPitch += (pitch - this.aimPitch) * (1 - Math.exp(-dt * 10));
+    this.laserHit = hitE;
     const arr = this.laser.geometry.attributes.position.array;
     arr[0] = o.x; arr[1] = o.y; arr[2] = o.z; arr[3] = end.x; arr[4] = end.y; arr[5] = end.z;
     this.laser.geometry.attributes.position.needsUpdate = true;

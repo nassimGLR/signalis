@@ -54,11 +54,27 @@ const PARK = { x: vw - 6, y: vh - 6 };
 const g = (fn, arg) => page.evaluate(fn, arg);
 const sleep = (ms) => page.waitForTimeout(ms);
 const snap = async (name) => { await page.screenshot({ path: `${out}/${scenario}-${name}.png` }); console.log('shot', name); };
-const key = async (k, ms = 80) => { await page.keyboard.down(k); await sleep(ms); await page.keyboard.up(k); };
+// Resolve after n animation frames. The game runs one update per frame, so two
+// frames after an event the game has seen it (at any frame rate).
+const frames = (n = 2) => g((n) => new Promise((res) => {
+  let i = 0;
+  const f = () => (++i >= n ? res() : requestAnimationFrame(f));
+  requestAnimationFrame(f);
+  setTimeout(res, 3000);
+}), n);
+// A key tap. It waits for the game to take the press before returning, so two
+// quick taps of one key can't merge into one on a slow frame.
+const key = async (k, ms = 80) => { await page.keyboard.down(k); await sleep(ms); await page.keyboard.up(k); await frames(2); };
 const until = async (fn, ms = 8000, arg) => {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) { if (await g(fn, arg)) return true; await sleep(100); }
   return false;
+};
+// Wait for the game clock to move on by `sec` (the camera eases and Wren walks
+// in game time, which runs slower than wall time on a busy machine).
+const gameWait = async (sec, ms = 12000) => {
+  const t0 = await g(() => window.__game.time);
+  await until((t) => window.__game.time >= t, ms, t0 + sec);
 };
 const tp = (x, z, yaw = 0) => g(([x, z, yaw]) => window.__game.debugTeleport(x, z, yaw), [x, z, yaw]);
 const park = () => page.mouse.move(PARK.x, PARK.y);
@@ -166,6 +182,58 @@ if (scenario === 'inv' || scenario === 'full') {
   await openTab('map', 'key');
 }
 
+// ---------------------------------------------------------------- puzzle helpers
+// Each one reads the device state back after every key and presses again
+// until it matches, so a slow or busy machine can't desync the sequence.
+
+// Keypad: type the code; the base keypad shows the entry, so check it digit by
+// digit where it can be read. A DENY resets the entry, so retry from scratch.
+const enterCode = async (code) => {
+  const shown = () => g(() => { const d = document.querySelector('.keypad .disp'); return d ? d.textContent : null; });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (!(await g(() => !!window.__game.ui.modal))) return true;
+    for (let i = 0; i < code.length; i++) {
+      await key('Digit' + code[i]);
+      const t = await shown();
+      if (t !== null && i < code.length - 1 && !t.startsWith(code.slice(0, i + 1))) break;
+    }
+    if (await until(() => !window.__game.ui.modal, 2500)) return true;
+    await sleep(1000); // DENY → the entry clears itself
+  }
+  return false;
+};
+// Relay: throw each lever that isn't where the solution wants it, then check it moved.
+const setLevers = async (want) => {
+  for (let i = 0; i < want.length; i++) {
+    for (let n = 0; n < 4; n++) {
+      const lv = await g(() => window.__game.state.flags.relay.levers.map(Boolean));
+      if (lv[i] === want[i]) break;
+      await key('Digit' + (i + 1));
+      await until(([i, v]) => !!window.__game.state.flags.relay.levers[i] === v, 1500, [i, want[i]]);
+    }
+  }
+  const lv = await g(() => window.__game.state.flags.relay.levers.map(Boolean));
+  return want.every((v, i) => lv[i] === v);
+};
+// Oscilloscope: read both knobs (B's device face or the base panel), select
+// the one that is off, and turn it one notch at a time until both match.
+const waveKnobs = () => g(() => {
+  let parts = [...document.querySelectorAll('.knob-u')].map((u) => [u, u.querySelector('.kv')]);
+  if (!parts.length) parts = [...document.querySelectorAll('.wave .knob')].map((u) => [u, u.querySelector('.v')]);
+  return { vals: parts.map(([, v]) => (v ? parseInt(v.textContent, 10) : NaN)), sel: parts.findIndex(([u]) => u.classList.contains('sel')) };
+});
+const tuneWave = async (target) => {
+  let ws = await waveKnobs();
+  for (let n = 0; n < 40 && !(ws.vals[0] === target[0] && ws.vals[1] === target[1]); n++) {
+    if (ws.vals.length < 2 || ws.vals.some(Number.isNaN)) break;
+    const want = ws.vals[0] !== target[0] ? 0 : 1;
+    if (ws.sel !== want) await key('ArrowDown');
+    else await key(ws.vals[want] > target[want] ? 'ArrowLeft' : 'ArrowRight');
+    ws = await waveKnobs();
+  }
+  return ws;
+};
+
 // ---------------------------------------------------------------- keyboard playthrough
 if (scenario === 'play') {
   const step = async (name, ok, why) => {
@@ -230,14 +298,14 @@ if (scenario === 'play') {
   await tp(12.4, 31.5, EAST); await use();
   await step('keypad opens', await settle() === 'modal');
   await sleep(300);
-  for (const d of '7304') { await key('Digit' + d); await sleep(120); }
+  await step('keypad code accepted', await enterCode('7304'));
   await until(() => !window.__game.ui.modal, 5000); await settle();
   await step('relay door open', await until(() => window.__game.world.doors.dJB.open, 3000));
   await tp(8.5, 29.5, N); await use();
   await step('relay puzzle', await settle() === 'modal');
   await sleep(300);
   await snap('relay-puzzle');
-  await key('Digit1'); await sleep(300); await key('Digit3');
+  await step('relay levers set', await setLevers([true, false, true, false]));
   await step('power restored', await until(() => window.__game.state.powered, 8000));
   await sleep(3500); await settle();
   await snap('power-on');
@@ -268,9 +336,8 @@ if (scenario === 'play') {
   await step('wave puzzle', await settle() === 'modal');
   await sleep(400);
   await snap('wave');
-  for (let i = 0; i < 3; i++) { await key('ArrowLeft'); await sleep(100); }
-  await key('ArrowDown'); await sleep(100);
-  for (let i = 0; i < 2; i++) { await key('ArrowRight'); await sleep(100); }
+  const ws = await tuneWave([4, 3]);
+  await step('wave aligned', ws.vals[0] === 4 && ws.vals[1] === 3, JSON.stringify(ws));
   await sleep(300);
   await snap('wave-locked');
   await key('KeyE');
@@ -284,7 +351,26 @@ if (scenario === 'play') {
 if (scenario === 'mouse') {
   const ctl = () => g(() => window.__game.ctl);
   const P = () => g(() => { const p = window.__game.player; return { x: p.pos.x, z: p.pos.z, speed: p.speed, yaw: p.yaw, action: p.action }; });
-  const moveTo = async (x, y, z) => { const s = await screenOf(x, y, z); await page.mouse.move(Math.round(s.x), Math.round(s.y), { steps: 4 }); await sleep(250); return s; };
+  const moveTo = async (x, y, z) => { const s = await screenOf(x, y, z); await page.mouse.move(Math.round(s.x), Math.round(s.y), { steps: 4 }); await sleep(150); await frames(3); return s; };
+  // Labels never sit on another label or on another bracket; the pointer's
+  // verb may sit inside the hovered bracket but not on its corner arms.
+  const layoutCheck = () => g(() => {
+    const L = window.__game.controls.cursor.layout;
+    const hit = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+    const corners = (b, a) => [
+      { x0: b.x0, y0: b.y0, x1: b.x0 + a, y1: b.y0 + a }, { x0: b.x1 - a, y0: b.y0, x1: b.x1, y1: b.y0 + a },
+      { x0: b.x0, y0: b.y1 - a, x1: b.x0 + a, y1: b.y1 }, { x0: b.x1 - a, y0: b.y1 - a, x1: b.x1, y1: b.y1 },
+    ];
+    const bad = [];
+    L.labels.forEach((r, i) => {
+      L.labels.forEach((q, j) => { if (j > i && hit(r, q)) bad.push(`label ${i} × label ${j}`); });
+      L.boxes.forEach((b, j) => {
+        if (j === r.owner) return;
+        if (r.owner === -1 && j === L.hov) { if (corners(b, L.arm).some((c) => hit(r, c))) bad.push('pointer label × hovered corner'); } else if (hit(r, b)) bad.push(`label ${i} × box ${j}`);
+      });
+    });
+    return { labels: L.labels.length, boxes: L.boxes.length, hov: L.hov, bad };
+  });
   const fps = async (ms = 2500) => g((ms) => new Promise((res) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < ms) requestAnimationFrame(f); else res(n / ((performance.now() - t0) / 1000)); }; requestAnimationFrame(f); }), ms);
 
   // T8: cursor — OS cursor hidden, custom idle cursor drawn
@@ -315,11 +401,11 @@ if (scenario === 'mouse') {
 
   // T1: click-to-go across the cryo bay, routed around the chair and desk
   await tp(3.9, 42.1, EAST);
-  await sleep(900);
+  await gameWait(0.9);
   const dest = { x: 8.5, z: 43.3 };
   const ds = await screenOf(dest.x, 0, dest.z);
   await page.mouse.click(Math.round(ds.x), Math.round(ds.y));
-  await sleep(150);
+  await until(() => window.__game.ctl.mode === 'path', 4000);
   const c1 = await ctl();
   console.log('path', JSON.stringify(c1.path));
   check('click-to-go plans a path', c1.mode === 'path' && c1.path.length >= 2, JSON.stringify(c1));
@@ -336,59 +422,97 @@ if (scenario === 'mouse') {
     return ok;
   }, c1.path);
   check('path stays clear of props', clear);
-  await sleep(500);
+  await gameWait(0.5);
   await snap('path');
-  const arrived = await until(() => window.__game.ctl.mode === 'idle', 8000);
+  const arrived = await until(() => window.__game.ctl.mode === 'idle', 20000);
   const p1 = await P();
   console.log('arrival error m', Math.hypot(p1.x - dest.x, p1.z - dest.z).toFixed(3));
   check('click-to-go arrives within 0.25 m', arrived && Math.hypot(p1.x - dest.x, p1.z - dest.z) <= 0.25, JSON.stringify(p1));
 
   // T1b: double-click runs there; a click into the dark goes nowhere
   await tp(4.2, 38.4, EAST);
-  await sleep(900);
+  await gameWait(0.9);
   const dd = await screenOf(11, 0, 40);
   await page.mouse.dblclick(Math.round(dd.x), Math.round(dd.y));
-  check('double-click runs to the spot', await until(() => window.__game.ctl.mode === 'path' && window.__game.player.speed > 3.5, 3000), JSON.stringify(await P()));
-  await until(() => window.__game.ctl.mode === 'idle', 6000);
+  check('double-click runs to the spot', await until(() => window.__game.ctl.mode === 'path' && window.__game.player.speed > 3.5, 6000), JSON.stringify(await P()));
+  await until(() => window.__game.ctl.mode === 'idle', 15000);
   const voidPt = await screenOf(1.9, 0, 40.5); // west of the cryo bay: nothing there
   check('void point is on screen', voidPt.x > 2 && voidPt.x < vw - 2 && voidPt.y > 2 && voidPt.y < vh - 2, JSON.stringify(voidPt));
   await page.mouse.click(Math.round(voidPt.x), Math.round(voidPt.y));
-  await sleep(300);
+  await sleep(150); await frames(3);
   check('click into the dark starts no walk', (await ctl()).mode === 'idle', JSON.stringify(await ctl()));
+
+  // T1c: a slow, deliberate click (320 ms, on the spot) is still a click
+  await tp(4.2, 38.4, EAST);
+  await gameWait(0.9);
+  const sd = { x: 9, z: 39 };
+  const sc = await screenOf(sd.x, 0, sd.z);
+  await page.mouse.move(Math.round(sc.x), Math.round(sc.y));
+  await sleep(100); await frames(2);
+  await page.mouse.down(); await sleep(320); await page.mouse.up();
+  const slowPath = await until(() => window.__game.ctl.mode === 'path', 4000);
+  const slowArr = slowPath && await until(() => window.__game.ctl.mode === 'idle', 15000);
+  const ps = await P();
+  console.log('slow click arrival error m', Math.hypot(ps.x - sd.x, ps.z - sd.z).toFixed(3));
+  check('slow click (320 ms) walks to the spot', slowArr && Math.hypot(ps.x - sd.x, ps.z - sd.z) <= 0.3, JSON.stringify({ slowPath, ps }));
+
+  // T1d: pressing RMB drops a walk, even with nothing to ready
+  await tp(4.2, 38.4, EAST);
+  await gameWait(0.9);
+  const rd = await screenOf(11, 0, 40);
+  await page.mouse.click(Math.round(rd.x), Math.round(rd.y));
+  const walking = await until(() => window.__game.ctl.mode === 'path', 4000);
+  await page.mouse.down({ button: 'right' });
+  await until(() => window.__game.ctl.mode === 'idle', 3000);
+  const cr = await ctl();
+  await page.mouse.up({ button: 'right' });
+  const hasGun = await g(() => window.__game.inv.has('pistol'));
+  check('RMB press cancels a walk (no weapon)', walking && !hasGun && cr.mode === 'idle' && !cr.path.length, JSON.stringify({ walking, hasGun, mode: cr.mode, path: cr.path.length }));
 
   // T2: hold LMB toward the east wall: walk, stop at the wall, stop on release
   await tp(8, 40.5, EAST);
-  await sleep(800);
+  await gameWait(0.8);
   await moveTo(13.3, 0.05, 40.5); // the foot of the east wall
   await page.mouse.down();
-  await sleep(700);
+  await until(() => window.__game.ctl.mode === 'hold' && window.__game.player.speed > 1, 5000);
   const h1 = await g(() => ({ ctl: window.__game.ctl, x: window.__game.player.pos.x, speed: window.__game.player.speed }));
   await snap('hold');
   check('hold LMB walks toward the pointer', h1.ctl.mode === 'hold' && h1.speed > 1, JSON.stringify(h1));
-  await sleep(1300);
+  await until(() => window.__game.player.pos.x > 12.4, 12000);
+  await gameWait(0.6);
+  // sample for at least 0.5 s of game time
   const samples = [];
-  for (let i = 0; i < 6; i++) { samples.push(await P()); await sleep(100); }
+  const tS = await g(() => window.__game.time);
+  for (let i = 0; i < 60 && (samples.length < 6 || await g((t) => window.__game.time < t + 0.5, tS)); i++) { samples.push(await P()); await sleep(100); }
   const xs = samples.map((s) => s.x), zs = samples.map((s) => s.z);
   const jitter = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
   console.log(`hold: x=${xs[0].toFixed(3)} jitter=${jitter.toFixed(4)} m over 0.5 s`);
   check('hold stops at the wall without jitter', xs[0] > 12.4 && jitter < 0.02, `x=${xs[0].toFixed(3)} jitter=${jitter.toFixed(4)}`);
   await page.mouse.up();
-  await sleep(200);
+  await gameWait(0.2, 4000);
   const h2 = await P();
   console.log(`speed 0.2 s after release: ${h2.speed.toFixed(3)}`);
   check('release stops within 0.2 s', h2.speed < 0.05, `speed=${h2.speed.toFixed(3)}`);
+  check('a long hold is not read as a click', (await ctl()).mode === 'idle', JSON.stringify(await ctl()));
 
   // T3a: in reach of the desk: both items bracketed, the act cursor on one
   await tp(4.6, 41.75, S);
-  await sleep(900);
+  await park();
+  await gameWait(0.9); await frames(2);
+  const l0 = await layoutCheck();
+  console.log('brackets at rest', JSON.stringify(l0));
+  check('bracket labels at rest don\'t collide', l0.boxes >= 2 && l0.labels >= 2 && !l0.bad.length, JSON.stringify(l0));
+  await snap('brackets-rest');
   await moveTo(5.0, 0.92, 42.6);
   const c3b = await ctl();
   check('bracket on in-reach item', c3b.hover && c3b.hover.id === 'p_note_A' && c3b.hover.inReach, JSON.stringify(c3b.hover) + ' at ' + JSON.stringify(await P()));
+  const l1 = await layoutCheck();
+  check('hovered bracket: labels don\'t collide', l1.hov >= 0 && !l1.bad.length, JSON.stringify(l1));
   await snap('bracket');
 
   // T3: click a pickup ~6 m away: walk, reach, take
   await tp(10.5, 41.5, W);
-  await sleep(900);
+  await gameWait(0.9);
   await moveTo(4.2, 0.92, 42.7);
   const c3 = await ctl();
   check('hover picks the pickup (out of reach)', c3.hover && c3.hover.id === 'p_sealant_A' && !c3.hover.inReach, JSON.stringify(c3.hover));
@@ -397,7 +521,7 @@ if (scenario === 'mouse') {
   let sawReach = false;
   const took = await (async () => {
     const t0 = Date.now();
-    while (Date.now() - t0 < 12000) {
+    while (Date.now() - t0 < 25000) {
       const s = await g(() => ({ a: window.__game.player.action, taken: window.__game.state.taken.has('p_sealant_A') }));
       if (s.a === 'reach' || s.a === 'reachLow') sawReach = true;
       if (s.taken) return true;
@@ -414,19 +538,21 @@ if (scenario === 'mouse') {
   const opened = await until(() => !!window.__game.ui.dialogState, 5000);
   const fl = await screenOf(9, 0, 41);
   const r6 = await settle(15000, { x: Math.round(fl.x), y: Math.round(fl.y) });
-  await sleep(600);
+  await gameWait(0.6, 4000);
   const c6 = await g(() => ({ ctl: window.__game.ctl, speed: window.__game.player.speed }));
   check('clicked fixture talks; dismissing click starts no path', opened && r6 === 'play' && c6.ctl.mode === 'idle' && c6.speed < 0.05, JSON.stringify(c6));
 
   // T4: click a closed unlocked door: she opens it and walks through
   await tp(14.6, 26.5, N);
-  await sleep(1000);
+  await gameWait(1.0);
   await moveTo(13.5, 1.25, 23.5);
   const c4 = await ctl();
   check('hover picks the door', c4.hover && c4.hover.id === 'dCB', JSON.stringify(c4.hover));
+  const l4 = await layoutCheck();
+  check('door verb clear of the bracket corners', !l4.bad.length, JSON.stringify(l4));
   await snap('door-hover');
   await page.mouse.down(); await sleep(60); await page.mouse.up();
-  const through = await until(() => { const G = window.__game; return G.world.doors.dCB.open && G.state.currentRoom === 'C' && G.ctl.mode === 'idle'; }, 12000);
+  const through = await until(() => { const G = window.__game; return G.world.doors.dCB.open && G.state.currentRoom === 'C' && G.ctl.mode === 'idle'; }, 25000);
   const p4 = await P();
   console.log('after door', JSON.stringify({ x: +p4.x.toFixed(2), z: +p4.z.toFixed(2) }));
   check('door opens and she continues through', through && p4.x < 12.8, JSON.stringify(p4));
@@ -438,27 +564,42 @@ if (scenario === 'mouse') {
   await tp(32.6, 30.9, EAST);
   await settle();
   await moveTo(38.5, 0.8, 31.4);
-  await sleep(1400); // the camera settles with its pointer lead; point again at where it is now
+  await gameWait(1.4); // the camera settles with its pointer lead; point again at where it is now
   await moveTo(38.5, 0.8, 31.4);
   const tPress = await g(() => window.__game.time);
   await page.mouse.down({ button: 'right' });
-  const focused = await until(() => { const a = window.__game.ctl.aim; return a.lockId === 'e_G1' && a.focus >= 0.9; }, 4000);
+  const focused = await until(() => { const a = window.__game.ctl.aim; return a.lockId === 'e_G1' && a.focus >= 0.9; }, 15000);
   const tFocus = await g(() => window.__game.time);
   const c5 = await ctl();
   check('RMB locks the Hollow under the pointer', c5.aim.lockId === 'e_G1', JSON.stringify(c5.aim));
   console.log(`focus ${c5.aim.focus.toFixed(2)} after ${(tFocus - tPress).toFixed(2)} s game time`);
   check('focus ≥ 0.9 within 1.3 s (game time)', focused && tFocus - tPress <= 1.3, `focus=${c5.aim.focus.toFixed(2)} t=${(tFocus - tPress).toFixed(2)}s`);
-  await until(() => window.__game.ctl.aim.focus >= 0.95, 1500);
-  await sleep(150);
+  await until(() => window.__game.ctl.aim.focus >= 0.95, 5000);
+  await gameWait(0.15, 3000);
+  // the box wraps the body: the laser's end dot and the chest sit inside it
+  const fb = await g(() => {
+    const G = window.__game, f = G.controls.gameState.focus, d = G.player.laserDot;
+    const e = G.enemies.find((x) => x.id === G.ctl.aim.lockId);
+    if (!f || !d || !d.visible || !e) return { ok: false, why: 'no box, laser or lock' };
+    const p = G.worldToScreen(d.position.x, d.position.y, d.position.z);
+    const m = e.rig.chest.matrixWorld.elements;
+    const c = G.worldToScreen(m[12], m[13], m[14]);
+    const half = f.size / 2;
+    const inside = (q, pad) => Math.abs(q.x - f.x) <= half - pad && Math.abs(q.y - f.y) <= half - pad;
+    const r = (v) => Math.round(v);
+    return { ok: inside(p, 3) && inside(c, half * 0.35), dot: [r(p.x), r(p.y)], chest: [r(c.x), r(c.y)], box: [r(f.x), r(f.y), r(f.size)], state: e.state };
+  });
+  console.log('focus box', JSON.stringify(fb));
+  check('focus box wraps the target (laser end and chest inside)', fb.ok, JSON.stringify(fb));
   await snap('focus');
   const before = await g(() => window.__game.inv.weapon().loaded);
   await page.mouse.down(); await sleep(60); await page.mouse.up();
-  await sleep(300);
+  await until((b) => window.__game.inv.weapon().loaded !== b, 4000, before);
   const after = await g(() => window.__game.inv.weapon().loaded);
   check('LMB fires while readied', after === before - 1, `${before} → ${after}`);
   await snap('fired');
   await page.mouse.up({ button: 'right' });
-  await sleep(300);
+  await until(() => !window.__game.ctl.aim.active, 4000);
   const c5b = await ctl();
   check('release clears the ready state', !c5b.aim.active && c5b.mode === 'idle', JSON.stringify(c5b));
   await g(() => window.__game.enemies.forEach((e) => e.kill()));
@@ -468,7 +609,7 @@ if (scenario === 'mouse') {
   await park();
   await sleep(300);
   await F();
-  check('F interacts', await until(() => !!window.__game.ui.dialogState || !!window.__game.ui.modal, 3000));
+  check('F interacts', await until(() => !!window.__game.ui.dialogState || !!window.__game.ui.modal, 6000));
   await settle();
 
   // T8b: no custom cursor for touch
@@ -492,28 +633,28 @@ if (scenario === 'touch') {
   // taps count only on the game view itself, not on the stick or buttons
   const onCanvas = (p) => g(([x, y]) => document.elementFromPoint(x, y) === document.getElementById('view'), [p.x, p.y]);
   await tp(7, 41.5, 0);
-  await sleep(900);
+  await gameWait(0.9);
   const d = await screenOf(10.5, 0, 38.4);
   check('tap point is on the game view', await onCanvas(d), JSON.stringify(d));
   await page.touchscreen.tap(Math.round(d.x), Math.round(d.y));
-  await sleep(250);
+  await until(() => window.__game.ctl.mode === 'path', 4000);
   const c = await g(() => window.__game.ctl);
   check('tap on the floor walks there', c.mode === 'path', JSON.stringify(c));
-  check('tap arrives', await until(() => window.__game.ctl.mode === 'idle', 8000));
+  check('tap arrives', await until(() => window.__game.ctl.mode === 'idle', 20000));
   const pos = await g(() => window.__game.player.pos);
   check('arrived at the tapped spot', Math.hypot(pos.x - 10.5, pos.z - 38.4) < 0.3, JSON.stringify(pos));
   await snap('walked');
   // tap the breaker across the room: walk over, throw it
   await tp(10.2, 38.4, 0);
-  await sleep(1200);
+  await gameWait(1.2);
   const br = await screenOf(12.5, 0.9, 41.2);
   const inView = br.x > 4 && br.x < vw - 4 && br.y > 4 && br.y < vh - 4 && await onCanvas(br);
   check('breaker is tappable on a phone screen', inView, JSON.stringify(br));
   await page.touchscreen.tap(Math.round(br.x), Math.round(br.y));
-  await sleep(250);
+  await until(() => { const c = window.__game.ctl; return c.pending === 'f_breaker_A' || c.acting; }, 4000);
   const cb = await g(() => window.__game.ctl);
   check('tap a thing out of reach walks to it', cb.pending === 'f_breaker_A' || cb.acting, JSON.stringify(cb));
-  check('…and uses it', await until(() => !!window.__game.state.flags.breaker, 12000), JSON.stringify(await g(() => window.__game.ctl)));
+  check('…and uses it', await until(() => !!window.__game.state.flags.breaker, 25000), JSON.stringify(await g(() => window.__game.ctl)));
   await snap('used');
   await settle(15000, { x: Math.round(d.x), y: Math.round(d.y) });
   await snap('game');
