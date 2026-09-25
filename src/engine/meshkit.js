@@ -165,7 +165,6 @@ export function loft(sections, opts = {}) {
   const out = new THREE.Vector3();
   for (let j = 0; j < rings.length - 1; j++) {
     const A = rings[j], B = rings[j + 1];
-    const cy = (sections[j].y + sections[j + 1].y) / 2;
     const cx = ((sections[j].dx || 0) + (sections[j + 1].dx || 0)) / 2;
     const cz = ((sections[j].dz || 0) + (sections[j + 1].dz || 0)) / 2;
     for (let i = 0; i < N; i++) {
@@ -428,10 +427,34 @@ export function toGeometry(parts) {
 }
 
 // ---------------------------------------------------------------- painting
-// paintFace(ctx, ox, oy, spec): a 32x32 face at (ox, oy) in the atlas canvas.
-export function paintFace(ctx, ox, oy, spec) {
-  const px = (x, y, c, w = 1, h = 1) => { ctx.fillStyle = c; ctx.fillRect(ox + x, oy + y, w, h); };
-  px(0, 0, spec.skin, 32, 32);
-  if (spec.shadeCheek) { px(0, 18, spec.shadeCheek, 5, 14); px(27, 18, spec.shadeCheek, 5, 14); }
-  if (spec.draw) spec.draw(px);
+// Pixmap: an RGBA pixel buffer (y down) that becomes a nearest-filtered
+// DataTexture. No DOM needed, so rigs also build under Node for tests.
+export class Pixmap {
+  constructor(w, h, fill = 0x000000) {
+    this.w = w; this.h = h;
+    this.data = new Uint8Array(w * h * 4);
+    this.rect(0, 0, w, h, fill);
+  }
+  put(x, y, hex) {
+    if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
+    const i = ((this.h - 1 - y) * this.w + x) * 4; // data row 0 = bottom (v = 0)
+    this.data[i] = (hex >> 16) & 255; this.data[i + 1] = (hex >> 8) & 255; this.data[i + 2] = hex & 255; this.data[i + 3] = 255;
+  }
+  rect(x, y, w, h, hex) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) this.put(x + i, y + j, hex); }
+  texture() {
+    const t = new THREE.DataTexture(this.data, this.w, this.h, THREE.RGBAFormat);
+    t.magFilter = t.minFilter = THREE.NearestFilter;
+    t.generateMipmaps = false;
+    t.needsUpdate = true;
+    return t;
+  }
+}
+
+// paintFace(pix, rect, draw, emissive?): paint a 32x32 face into an atlas rect.
+// draw(f, e) gets painters f(x, y, color) or f(x, y, w, h, color) in face
+// pixels (0..31) for the diffuse map, and e(...) for the emissive map.
+export function paintFace(pix, rect, draw, emissive = null) {
+  const [ox, oy] = rect;
+  const painter = (p) => (x, y, a, b, c) => (c === undefined ? p.put(ox + x, oy + y, a) : p.rect(ox + x, oy + y, a, b, c));
+  draw(painter(pix), emissive ? painter(emissive) : () => {});
 }

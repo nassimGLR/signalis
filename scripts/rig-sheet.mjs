@@ -85,18 +85,21 @@ function runChecks() {
   }
 
   // foot slide: synthetic walk / run using custodianPhaseRate
-  for (const [label, speed, cond] of [['walk', 2.3, 0], ['slow', 1.2, 0], ['run', 4.1, 0], ['limp', 2.3 * 0.85, 1], ['failing', 2.3 * 0.72, 2]]) {
+  for (const [label, speed, cond, mv, foreignRate] of [['walk', 2.3, 0], ['slow', 1.2, 0], ['run', 4.1, 0], ['limp', 2.3 * 0.85, 1], ['failing', 2.3 * 0.72, 2],
+    ['aim-strafe', 1.2, 0, { x: 1, z: 0 }], ['aim-backpedal', 1.0, 0, { x: 0, z: -1 }], ['aim-diagonal', 1.2, 0, { x: -0.7, z: 0.7 }],
+    ['legacy-cadence', 2.3, 0, null, (v) => v * 1.9]]) {
     const r = CH.buildCustodian();
     const dt = 1 / 60;
-    let phase = 0, z = 0;
+    let phase = 0, z = 0, x = 0;
+    const ml = mv ? Math.hypot(mv.x, mv.z) : 1;
     const heel = new THREE.Vector3(), toe = new THREE.Vector3();
     const planted = { L: { heel: null, toe: null }, R: { heel: null, toe: null } };
     let worst = 0, stances = 0, lowest = 9;
     for (let f = 0; f < 60 * 6; f++) {
-      phase += dt * CH.custodianPhaseRate(speed, cond);
-      z += speed * dt;
-      r.root.position.set(0, 0, z);
-      CH.poseCustodian(r, { speed, phase, time: f * dt, condition: cond }, f === 0 ? 1 : dt);
+      phase += dt * (foreignRate ? foreignRate(speed) : CH.custodianPhaseRate(speed, cond)); // legacy: a caller not using custodianPhaseRate
+      if (mv) { x += speed * dt * mv.x / ml; z += speed * dt * mv.z / ml; } else z += speed * dt;
+      r.root.position.set(x, 0, z);
+      CH.poseCustodian(r, mv ? { speed, phase, time: f * dt, aiming: true, moveLocal: mv } : { speed, phase, time: f * dt, condition: cond }, f === 0 ? 1 : dt);
       r.root.updateMatrixWorld(true);
       if (f < 60) continue;
       for (const side of ['L', 'R']) {
@@ -116,6 +119,33 @@ function runChecks() {
     }
     const ok = worst <= 0.05 && lowest > -0.02;
     (ok ? pass : fail)(`foot-slide-${label}`, `max drift ${worst.toFixed(3)} m over ~${stances} stances @ ${speed.toFixed(2)} m/s; lowest sole ${lowest.toFixed(3)}`);
+  }
+
+  // hollow gait: chase with the enemy's surging speed (internal phase keeps feet planted)
+  for (const v of HOLLOW_VARIANTS) {
+    const h = CH.buildHollow(v);
+    const dt = 1 / 60;
+    let z = 0, t = 0;
+    const p = new THREE.Vector3();
+    const planted = {};
+    let worst = 0;
+    for (let f = 0; f < 60 * 6; f++) {
+      t += dt;
+      const speed = 1.35 * (0.65 + 0.55 * Math.max(0, Math.sin(t * 3.5)));
+      z += speed * dt;
+      h.root.position.set(0, 0, z);
+      CH.poseHollow(h, { state: 'chase', stateT: t, time: t, speed, phase: t * 3 }, f === 0 ? 1 : dt);
+      h.root.updateMatrixWorld(true);
+      if (f < 60) continue;
+      for (const side of ['L', 'R']) {
+        for (const [key, lz] of [['heel', -0.06], ['toe', 0.15]]) {
+          p.set(0, -0.07, lz).applyMatrix4(h['foot' + side].matrixWorld);
+          const k = side + key;
+          if (p.y < 0.012 && h.footDown[side]) { if (!planted[k]) planted[k] = p.clone(); else worst = Math.max(worst, Math.hypot(p.x - planted[k].x, p.z - planted[k].z)); } else planted[k] = null;
+        }
+      }
+    }
+    (worst <= 0.05 ? pass : fail)(`hollow-${v}-foot-slide`, `max stance drift ${worst.toFixed(3)} m (chase, surging 0.9–1.6 m/s; the Lurcher's dragged foot scrapes by design)`);
   }
 
   // NaN sweep: every state x 200 frames at random dt in [0.016, 0.1]

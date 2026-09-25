@@ -15,8 +15,8 @@
 // hurt flinch and a death fall. Layer weights blend over ~0.15 s.
 import * as THREE from 'three';
 import {
-  Part, loft, prism, ball, extrudeSide, box, ribbon, shell, mergeByBone, toGeometry,
-  RECT, ATLAS_W, ATLAS_H, uvOf,
+  loft, prism, ball, extrudeSide, box, ribbon, shell, mergeByBone, toGeometry,
+  RECT, ATLAS_W, ATLAS_H, uvOf, Pixmap, paintFace,
 } from './meshkit.js';
 
 export const STOMP_IMPACT_T = 0.30;
@@ -35,7 +35,7 @@ const C = {
   hair: 0x7a4632, hairHi: 0x94583f, hairDeep: 0x4b281d,
   yoke: 0xc7bfae, band: 0xa3161f, belt: 0x4a3c30, beltDark: 0x3a2f26,
   boot: 0x16171a, sole: 0x0a0a0b, bone: 0xd9d2c2, metal: 0x8a8578, lamp: 0x3b3e42,
-  gun: 0x1d1f22, gunHi: 0x2e3135,
+  gun: 0x26282c, gunHi: 0x50555b,
   // hollows
   hSkin: 0x7b7478, hSkinDark: 0x5e585c, chassis: 0x5a5d60, chassisDark: 0x3a3c3f,
   cable: 0x1a1414, cableTip: 0xa3161f, feet: 0x55585b, feetDark: 0x3a3c3f,
@@ -49,29 +49,20 @@ const HOLLOW_TONES = [0x3a3b3e, 0x44392e, 0x2f3a40];
 let _atlas = null;
 function atlas() {
   if (_atlas) return _atlas;
-  const W = ATLAS_W, H = ATLAS_H;
-  const dif = new Uint8Array(W * H * 4), emi = new Uint8Array(W * H * 4);
-  const put = (buf, x, y, hex) => {
-    if (x < 0 || y < 0 || x >= W || y >= H) return;
-    const i = ((H - 1 - y) * W + x) * 4; // row 0 of the data = bottom (v = 0)
-    buf[i] = (hex >> 16) & 255; buf[i + 1] = (hex >> 8) & 255; buf[i + 2] = hex & 255; buf[i + 3] = 255;
-  };
-  const rect = (buf, x, y, w, h, hex) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(buf, x + i, y + j, hex); };
-  rect(dif, 0, 0, W, H, 0xffffff);
-  rect(emi, 0, 0, W, H, 0x000000);
+  const dif = new Pixmap(ATLAS_W, ATLAS_H, 0xffffff), emi = new Pixmap(ATLAS_W, ATLAS_H, 0x000000);
+  const put = (p, x, y, hex) => p.put(x, y, hex);
+  const rect = (p, x, y, w, h, hex) => p.rect(x, y, w, h, hex);
   let seed = 7;
   const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
 
   // WREN-3's face: 0.005 m per pixel, x −0.08..0.08, y 0.12 (top) .. −0.04 (chin)
-  {
-    const [ox, oy] = RECT.faceWren;
-    const f = (x, y, a, b, c) => (c === undefined ? rect(dif, ox + x, oy + y, 1, 1, a) : rect(dif, ox + x, oy + y, a, b, c));
+  paintFace(dif, RECT.faceWren, (f, e) => {
     f(0, 0, 32, 32, C.skin);
     f(8, 5, 5, 1, 0xa88878); f(19, 5, 5, 1, 0xa88878);     // faint brows (under the fringe)
     // eyes: 2x1 teal with a dark lash line above
     f(8, 8, 3, 1, 0x2a1d1a); f(21, 8, 3, 1, 0x2a1d1a);
     f(9, 9, 2, 1, 0x6fc3c9); f(21, 9, 2, 1, 0x6fc3c9);
-    rect(emi, ox + 9, oy + 9, 2, 1, 0x28585c); rect(emi, ox + 21, oy + 9, 2, 1, 0x28585c);
+    e(9, 9, 2, 1, 0x28585c); e(21, 9, 2, 1, 0x28585c);
     f(16, 14, 1, 1, 0xb09e8f); // nose shadow
     f(9, 15, 2, 2, 0xdcc9bf); f(21, 15, 2, 2, 0xdcc9bf);   // a little warmth in the cheeks
     // android panel seams: faint, along the jaw line only
@@ -80,17 +71,16 @@ function atlas() {
       f(Math.round(3 + t * 5), y, 1, 1, 0xcdc0b3);
       f(Math.round(28 - t * 5), y, 1, 1, 0xcdc0b3);
     }
-  }
+  }, emi);
   // Hollow faces: grey-violet, split vertically with a dark cavity
-  const hollowFace = (ox, oy, bothEyes) => {
-    const f = (x, y, a, b, c) => (c === undefined ? rect(dif, ox + x, oy + y, 1, 1, a) : rect(dif, ox + x, oy + y, a, b, c));
+  const hollowFace = (r, bothEyes) => paintFace(dif, r, (f, e) => {
     f(0, 0, 32, 32, C.hSkin);
     for (let i = 0; i < 40; i++) f(Math.floor(rnd() * 32), Math.floor(rnd() * 32), 0x6c656a);
     f(0, 18, 4, 14, 0x6a6468); f(28, 18, 4, 14, 0x6a6468);
     // eye sockets
     f(7, 8, 4, 2, 0x221d20); f(21, 8, 4, 2, 0x221d20);
-    f(8, 8, 2, 1, 0xff3a30); rect(emi, ox + 8, oy + 8, 2, 1, 0xd02018);
-    if (bothEyes) { f(22, 8, 2, 1, 0xff3a30); rect(emi, ox + 22, oy + 8, 2, 1, 0xd02018); }
+    f(8, 8, 2, 1, 0xff3a30); e(8, 8, 2, 1, 0xd02018);
+    if (bothEyes) { f(22, 8, 2, 1, 0xff3a30); e(22, 8, 2, 1, 0xd02018); }
     // the split: a crack from the brow down to the chin, widening into a cavity
     for (let y = 0; y < 32; y++) {
       const cx = 17 + Math.round(Math.sin(y * 0.7) * 0.8);
@@ -100,13 +90,11 @@ function atlas() {
       if (y > 10 && y < 26) { f(cx - (wdt >> 1) - 1, y, 1, 1, 0x4e474b); f(cx + wdt - (wdt >> 1), y, 1, 1, 0x4e474b); }
     }
     for (let y = 12; y < 28; y++) { f(Math.round(5 + (y - 12) * 0.25), y, 1, 1, 0x655f63); }
-  };
-  hollowFace(RECT.faceHollow[0], RECT.faceHollow[1], false);
-  hollowFace(RECT.faceRusher[0], RECT.faceRusher[1], true);
+  }, emi);
+  hollowFace(RECT.faceHollow, false);
+  hollowFace(RECT.faceRusher, true);
   // Warden bulkhead plate: scuffed steel, our bone/red chevron band + stencil block
-  {
-    const [ox, oy] = RECT.plate;
-    const f = (x, y, a, b, c) => (c === undefined ? rect(dif, ox + x, oy + y, 1, 1, a) : rect(dif, ox + x, oy + y, a, b, c));
+  paintFace(dif, RECT.plate, (f) => {
     f(0, 0, 32, 32, 0x5d6063);
     for (let i = 0; i < 90; i++) f(Math.floor(rnd() * 32), Math.floor(rnd() * 32), rnd() < 0.5 ? 0x676a6d : 0x4d5053);
     f(0, 0, 32, 1, 0x3a3c3f); f(0, 31, 32, 1, 0x3a3c3f); f(0, 0, 1, 32, 0x3a3c3f); f(31, 0, 1, 32, 0x3a3c3f);
@@ -119,7 +107,7 @@ function atlas() {
     }
     f(3, 22, 9, 4, C.band); f(14, 22, 3, 4, C.bone);
     for (let i = 0; i < 30; i++) f(Math.floor(rnd() * 32), 26 + Math.floor(rnd() * 6), 0x5a3a2a); // rust
-  }
+  });
   // rib lines (horizontal), lamp lens, service-plate pips
   {
     const [ox, oy, w, h] = RECT.ribs;
@@ -142,14 +130,7 @@ function atlas() {
     rect(dif, px + 1, py + 3, 2, 2, 0x6fc3c9); rect(dif, px + 5, py + 3, 2, 2, 0x6fc3c9);
     rect(emi, px + 1, py + 3, 2, 2, 0x3c8a90); rect(emi, px + 5, py + 3, 2, 2, 0x3c8a90);
   }
-  const mk = (data) => {
-    const t = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
-    t.magFilter = t.minFilter = THREE.NearestFilter;
-    t.generateMipmaps = false;
-    t.needsUpdate = true;
-    return t;
-  };
-  _atlas = { map: mk(dif), emissive: mk(emi) };
+  _atlas = { map: dif.texture(), emissive: emi.texture() };
   return _atlas;
 }
 
@@ -271,7 +252,6 @@ function keyed(keys, deg) {
 }
 
 function buildWrenParts(rig) {
-  const P = rig.P;
   const parts = [];
   const add = (bone, part) => { part.bone = BI[bone]; parts.push(part); return part; };
 
@@ -437,6 +417,7 @@ export function buildCustodian() {
   rig.eyeLight = rig.statusLamp; // legacy alias (was the eye material)
   rig._st = makeState();
   rig.gaitPhase = 0;
+  rig.footDown = { L: true, R: true };
   poseCustodian(rig, {}, 1);
   return rig;
 }
@@ -481,7 +462,7 @@ function buildHollowParts(rig, variant) {
     add('hips', box(0.06 + rnd() * 0.03, 0.1 + rnd() * 0.08, 0.008, { color: toneDark })).place(x, -0.12 - rnd() * 0.03, z, 0.1, a, (rnd() - 0.5) * 0.4);
   }
   // exposed chassis: a thin spine-waist and a ribbed cage
-  const [rx, ry, rw, rh] = RECT.ribs;
+  const [rx, ry, rw] = RECT.ribs;
   const ribUV = (y0, y1, r0, r1) => (p) => uvOf(
     rx + Math.max(0.5, Math.min(rw - 0.5, rw / 2 + Math.atan2(p.x, p.z) / Math.PI * rw)),
     ry + Math.max(r0 + 0.5, Math.min(r1 - 0.5, r0 + (y1 - p.y) / (y1 - y0) * (r1 - r0))));
@@ -526,7 +507,7 @@ function buildHollowParts(rig, variant) {
   const [hx, hy] = RECT[faceKey];
   const faceUV = (p) => uvOf(hx + Math.max(0, Math.min(32, (p.x + 0.08) / 0.005)), hy + Math.max(0, Math.min(32, (0.12 - p.y) / 0.005)));
   const isFace = (cen, n) => n.z > 0.28 && cen.y < 0.13;
-  const scalp = variant === 1 ? 0x2a2420 : C.hSkinDark;
+  const scalp = variant === 1 ? 0x2a2420 : 0x857d82; // pale skull reads from the top-down camera
   add('head', loft([
     { y: -0.05, w: 0.05, d: 0.05, dz: 0.056 },
     { y: -0.024, w: 0.108, d: 0.128, dz: 0.024 },
@@ -611,6 +592,7 @@ export function buildHollow(variant = 0) {
   rig.chest.add(rig.core);
   rig._st = makeState();
   rig.gaitPhase = 0;
+  rig.footDown = { L: true, R: true };
   if (variant === 'warden') {
     // torn, dented bulkhead plate (0.55 x 0.95 m) strapped to the left forearm
     const [px, py] = RECT.plate;
@@ -654,7 +636,8 @@ function makeState() {
     hs: new THREE.Vector3(1, 1, 1), // head scale (stomped)
     fadeT: 1, fadeDur: 0.2, mode: '', init: false,
     wAim: 0, wReload: 0, cond: 0, hurt: 0, lookY: 0, lookP: 0, wTurn: 0, turnSign: 1, tph: 0,
-    mvx: 0, mvz: 1, wDead: 0, gph: 0, prevState: '', stateAge: 0,
+    mvx: 0, mvz: 1, gph: 0, prevState: '',
+    prevPhase: 0, rateObs: 0, iph: 0, extPhase: true,
   };
 }
 
@@ -672,7 +655,7 @@ const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const win = (t, a, b, c, d) => (t < a || t > d ? 0 : t < b ? smooth((t - a) / (b - a)) : t <= c ? 1 : 1 - smooth((t - c) / (d - c)));
 
 // scratch (no per-call allocation)
-const _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
+const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
 const _e = new THREE.Euler(), _eY = new THREE.Euler(0, 0, 0, 'YXZ');
 const _mH = new THREE.Matrix4(), _mC = new THREE.Matrix4(), _mI = new THREE.Matrix4(), _mT = new THREE.Matrix4();
@@ -917,7 +900,7 @@ export function poseCustodian(rig, s, dt) {
   // ---- death has its own full-body animation
   if (dead) {
     if (S.mode !== 'dead') { startFade(S, 0.18); S.mode = 'dead'; }
-    custodianDeath(rig, S, deadT, time);
+    custodianDeath(rig, S, deadT);
     commit(rig, S, dt);
     return;
   }
@@ -931,8 +914,21 @@ export function poseCustodian(rig, s, dt) {
   const D = 2 * stepLen;
   const beta = lerp(0.6, 0.38, runW);
   const lift = lerp(0.075, 0.17, runW) * (1 - 0.35 * limpW);
-  const aStrike = lerp(0.24, 0.1, runW), aToe = lerp(0.34, 0.42, runW);
-  const ph = phase;
+  // heel/toe roll only when travelling forward; sideways / backward steps land flat
+  const fwd = clamp01(S.mvz * 1.4 - 0.4);
+  const aStrike = lerp(0.24, 0.1, runW) * fwd, aToe = lerp(0.34, 0.42, runW) * fwd;
+  // Stride phase: use the caller's phase when it advances at custodianPhaseRate
+  // (keeps footstep audio in sync); otherwise drive our own so feet never skate.
+  const expRate = PI * speed / stepLen;
+  if (!snap && dt > 0) {
+    const obs = (phase - S.prevPhase) / dt;
+    S.rateObs += (obs - S.rateObs) * (1 - Math.exp(-dt * 6));
+    S.iph += dt * expRate;
+    S.extPhase = expRate < 0.5 ? S.extPhase : Math.abs(S.rateObs - expRate) < 0.25 * expRate;
+  } else { S.rateObs = expRate; S.iph = phase; S.extPhase = true; }
+  S.prevPhase = phase;
+  if (S.extPhase) S.iph = phase;
+  const ph = S.extPhase ? phase : S.iph;
   const cph = Math.cos(ph), sph = Math.sin(ph);
 
   // idle life: breathing, weight shifts, glances
@@ -994,6 +990,7 @@ export function poseCustodian(rig, s, dt) {
     const u = frac(ph / TAU + off);
     const bLeg = side < 0 ? beta * (1 - 0.3 * limpW) : beta;
     footCycle(u, bLeg, D, lift * (side < 0 ? 1 - 0.3 * limpW : 1), aStrike, aToe, P.ankle);
+    rig.footDown[side > 0 ? 'L' : 'R'] = walkW < 0.5 || u < bLeg;
     let fz = FOOT.z * walkW, fy = P.ankle + (FOOT.y - P.ankle) * walkW, fa = FOOT.a * walkW;
     // idle stance: left foot a little forward, toes out, weight shifts
     let bx = side * (0.1 - 0.018 * walkW), bz = (side > 0 ? 0.035 : -0.02) * idle;
@@ -1014,9 +1011,11 @@ export function poseCustodian(rig, s, dt) {
       else { const e = smooth((t - STOMP_IMPACT_T) / 0.25); sz = lerp(0.4, 0.0, e); sy = P.ankle + 0.06 * Math.sin(e * PI); }
       fz = lerp(fz, sz, stompW); fy = lerp(fy, sy, stompW); fa = lerp(fa, sa, stompW);
     }
-    const tx = bx + S.mvx * fz;
-    const tz = bz + S.mvz * fz;
-    const toeOut = (0.14 * idle + 0.05) * side;
+    // stance width is laid out in the hips' (strafe-turned) frame
+    const cy = Math.cos(hipMoveYaw), sy = Math.sin(hipMoveYaw);
+    const tx = bx * cy + bz * sy + S.mvx * fz;
+    const tz = -bx * sy + bz * cy + S.mvz * fz;
+    const toeOut = (0.14 * idle + 0.05) * side + hipMoveYaw;
     legIK(rig, S, side, tx, fy, tz, fa, toeOut, 1);
   }
 
@@ -1128,7 +1127,7 @@ const _qDown2 = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4()
   new THREE.Vector3(0.95, -0.12, 0.28).normalize(), // local +Z (front) → +X
 ));
 _qDown2.normalize();
-function custodianDeath(rig, S, t, time) {
+function custodianDeath(rig, S, t) {
   const P = rig.P;
   const a = smooth(t / 0.5), b = smooth((t - 0.45) / 0.65), c = smooth((t - 1.05) / 0.35);
   // hips path
@@ -1213,6 +1212,7 @@ export function poseHollow(rig, s, dt) {
       const dragging = side < 0 && drag;
       const bL = dragging ? beta * 0.8 : beta;
       footCycle(u, bL, D, (dragging ? 0.02 : rusher ? 0.12 : 0.06), dragging ? 0 : 0.2, dragging ? 0.1 : 0.3, P.ankle);
+      rig.footDown[side > 0 ? 'L' : 'R'] = walkW < 0.5 || u < bL;
       const fz = FOOT.z * walkW, fy = P.ankle + (FOOT.y - P.ankle) * walkW, fa = (dragging ? -0.25 * walkW : 0) + FOOT.a * walkW;
       legIK(rig, S, side, side * (warden ? 0.13 : 0.1), fy, fz + (side > 0 ? 0.04 : -0.03) * (1 - walkW), fa, side * 0.12 + (dragging ? -0.3 : 0), 1);
     }

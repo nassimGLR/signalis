@@ -247,7 +247,7 @@ window.wrenSheet = async () => {
   const W = 1536;
   const cols = 6, cw = 256, ch = 300;
   const rows = Math.ceil(WREN_POSES.length / cols);
-  const gameCols = 8, gw = 192;
+  const gw = 192;
   const H = 40 + 512 + 20 + rows * ch + 30 + 2 * (gw + 24) + 20;
   const { c, g } = sheet(W, H);
   const rig = CH.buildCustodian();
