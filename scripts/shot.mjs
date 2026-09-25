@@ -317,7 +317,7 @@ if (scenario === 'play') {
   await settle();
   // observation memory
   await tp(55, 18, N); await use(); await settle(40000);
-  await step('observation memory', await g(() => !!window.__game.state.flags.memPromise));
+  await step('observation memory', await g(() => { const f = window.__game.state.flags; return !!(f.memHandover || f.memPromise); }));
   // archive desk: the pickups sit on its north edge — stand north of it, facing south
   await tp(53.1, 30.4, S); await use(); await settle();
   await step('obol', (await facts()).items.includes('obol'));

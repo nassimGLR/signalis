@@ -296,10 +296,9 @@ for (const [name, x, z, yaw, o] of SPOTS) {
 }
 
 // ---- chase case: a Hollow chasing within 3 m may give at most the single-row
-// event tears (uTear ≤ 0.06), never the full glitch. This needs D2's
-// updatePost (integration request D2 #2); the base game still feeds
-// threat·0.35 into uGlitch, so until then it is an expected failure (XFAIL,
-// not counted). It reports XPASS once D2 lands.
+// event tears (uTear ≤ 0.06), never the full glitch (D2's updatePost: the
+// threat feeds the radio static only). Also: some tearing is expected, so the
+// chase is visible at all.
 if (!ONLY || ONLY.includes('concourse-chase')) {
   await g(() => {
     const G = window.__game;
@@ -318,9 +317,9 @@ if (!ONLY || ONLY.includes('concourse-chase')) {
   }
   await page.screenshot({ path: `${out}/world-concourse-chase.png` });
   const threat = await g(() => window.__game.threat || 0);
-  const ok = peak.gl <= 0.14 && peak.tear <= 0.06;
-  if (ok) pass('chase-glitch', `XPASS: chasing within 3 m, uGlitch ${peak.gl.toFixed(3)} ≤ 0.14, uTear ${peak.tear.toFixed(2)} ≤ 0.06`);
-  else console.log(`XFAIL chase-glitch — chasing within 3 m (threat ${threat.toFixed(2)}): uGlitch ${peak.gl.toFixed(3)}, uTear ${peak.tear.toFixed(2)}; expected until D2's updatePost drops the threat feed`);
+  const ok = peak.gl <= 0.14 && peak.tear > 0 && peak.tear <= 0.06;
+  if (ok) pass('chase-glitch', `chasing within 3 m (threat ${threat.toFixed(2)}): uGlitch ${peak.gl.toFixed(3)} ≤ 0.14, uTear ${peak.tear.toFixed(3)} in (0, 0.06]`);
+  else fail('chase-glitch', `chasing within 3 m (threat ${threat.toFixed(2)}): uGlitch ${peak.gl.toFixed(3)}, uTear ${peak.tear.toFixed(3)}`);
   await g(() => { const e = window.__game.enemies.find((q) => q.id === 'e_G1'); e.state = e.__prevState || 'dormant'; });
 }
 
