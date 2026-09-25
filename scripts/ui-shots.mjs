@@ -25,6 +25,12 @@ const check = (n, ok, why = '', info = '') => (ok ? PASS(n, info) : FAIL(n, why 
   const html = await readFile('dist/index.html', 'utf8');
   check('build: no VT323/Oxanium/fonts.googleapis', !/VT323|Oxanium|fonts\.googleapis/.test(html), 'legacy font reference found');
   check('build: fonts inlined', /@font-face\{font-family:'Sofia Sans Condensed';src:url\(data:font\/woff2/.test(html), 'no inlined @font-face');
+  // OFL 1.1 §2: copyright notices and the licence travel with every copy
+  const embed = await readFile('dist/embed.html', 'utf8');
+  const notice = ['SIL OPEN FONT LICENSE Version 1.1', 'The Sofia Sans Project Authors', 'Copyright 2017 IBM Corp', 'The Michroma Project Authors', 'James Grieshaber', 'Reserved Font Name'];
+  const missing = notice.filter((t) => !html.includes(t) || !embed.includes(t));
+  check('build: OFL notice in index.html and embed.html', !missing.length, 'missing: ' + missing.join(', '));
+  check('build: no RFN family names in @font-face', !/font-family:'(IBM Plex Mono|Reenie Beanie)'/.test(html), 'reserved name used');
 }
 
 const browser = await chromium.launch({
@@ -105,7 +111,12 @@ async function desktop() {
   check('options opens', await until(() => !!document.querySelector('.opt-screen')), 'no options screen');
   await wait(300);
   await shot('options');
+  const tabsY = async () => g(() => Math.round(document.querySelector('.opt-panel .seg-tabs').getBoundingClientRect().top));
+  const optFit = async () => g(() => { const r = document.querySelector('.opt-panel').getBoundingClientRect(), rows = document.querySelector('.opt-rows'); return { bottom: r.bottom, dead: rows.clientHeight - [...rows.children].reduce((a, e) => a + e.offsetHeight, 0) }; });
+  const y0 = await tabsY(), f0 = await optFit();
   await click('.seg-tab', 'CONTROLS');
+  const y1 = await tabsY(), f1 = await optFit();
+  check('options: panel fits its section, tabs stay put', y0 === y1 && f0.dead < 40 && f1.dead < 40 && f1.bottom <= 720, `tabs ${y0}/${y1}, dead ${f0.dead}/${f1.dead}px, bottom ${f1.bottom}`);
   const before = await g(() => window.__game.ui.settings.faceCursor);
   await click('.opt-row:nth-child(3) .ch', before ? 'OFF' : 'ON');
   const after = await g(() => window.__game.ui.settings.faceCursor);
@@ -121,6 +132,12 @@ async function desktop() {
   check('manual opens', await until(() => !!document.querySelector('.man-screen')), 'no manual');
   await wait(300);
   await shot('manual');
+  const cue0 = await g(() => ({ pg: document.querySelector('.man-panel .pg').textContent, more: document.querySelector('.man-wrap').classList.contains('more') }));
+  await g(() => { const b = document.querySelector('.man-body'); b.scrollTop = b.scrollHeight; });
+  await wait(250);
+  const cue1 = await g(() => ({ pg: document.querySelector('.man-panel .pg').textContent, more: document.querySelector('.man-wrap').classList.contains('more') }));
+  check('manual: scroll cue (PG + fade) until the end', /^PG 1\/\d$/.test(cue0.pg) && cue0.more && !cue1.more && /^PG (\d)\/\1$/.test(cue1.pg), `${JSON.stringify(cue0)} → ${JSON.stringify(cue1)}`, `${cue0.pg} → ${cue1.pg}`);
+  await shot('manual-end');
   await click('.man-screen .btn.back');
   check('manual BACK closes', await until(() => !document.querySelector('.man-screen'), 3000), 'manual still open');
 
@@ -140,6 +157,13 @@ async function desktop() {
   });
   check('dialog text >= 19px at 720p', dlg.size >= 19, `font-size ${dlg.size}`, `${dlg.size}px`);
   check('no speaker label for WREN', dlg.who === 'none', `who display ${dlg.who}`);
+  const writes = await g(() => new Promise((res) => {
+    let n = 0;
+    const mo = new MutationObserver((l) => { n += l.length; });
+    mo.observe(document.getElementById('dialog'), { childList: true, subtree: true, characterData: true, attributes: true });
+    setTimeout(() => { mo.disconnect(); res(n); }, 600);
+  }));
+  check('dialog: no DOM writes while a typed line waits', writes === 0, `${writes} mutations in 600 ms`);
   await shot('dialog-examine');
   await clearDialogs();
   await wait(700);
@@ -300,6 +324,8 @@ async function desktop() {
   await until(() => !!document.querySelector('.os .it'), 5000);
   await wait(1500);
   check('CRITICAL condition word', await g(() => document.querySelector('.cond-word').textContent === 'CRITICAL'), 'wrong word');
+  const grade = await g(() => ({ ui: getComputedStyle(document.getElementById('ui')).filter, os: getComputedStyle(document.querySelector('.os')).filter, bd: getComputedStyle(document.querySelector('.os-screen')).backdropFilter }));
+  check('lowHp grades content, OS backdrop still dims the world', grade.ui === 'none' && /saturate/.test(grade.os) && /brightness/.test(grade.bd), JSON.stringify(grade));
   await shot('inventory-critical');
   await page.keyboard.press('Escape');
   await until(() => !window.__game.ui.modal, 3000);
@@ -356,6 +382,8 @@ async function desktop() {
   await g(() => { const G = window.__game; G.inv.box = [{ id: 'nanite', qty: 1 }, { id: 'ammo', qty: 12 }, { id: 'fuse', qty: 1 }]; G.inv.slots[5] = null; window.__game.ui.storage({ inv: G.inv, capacity: 24 }); });
   await until(() => !!document.querySelector('.locker'), 4000); await wait(300);
   await wait(700);
+  const lk = await g(() => { const r = document.querySelector('.os.locker').getBoundingClientRect(), sl = document.querySelector('.lk-grid .slot').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, slot: sl.width, gap: [r.left, innerWidth - r.right].map(Math.round) }; });
+  check('storage: 80px slots, panel fits 720p and is centred', lk.slot >= 80 && lk.top >= 0 && lk.bottom <= 720 && Math.abs(lk.gap[0] - lk.gap[1]) <= 2, JSON.stringify(lk), `slot ${lk.slot}px`);
   await shot('storage');
   const box0 = await g(() => window.__game.inv.box.length);
   await click('.lk-grid .slot:nth-child(1)');

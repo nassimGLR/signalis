@@ -7,17 +7,23 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 
 const watch = process.argv.includes('--watch');
 
-// family, file, weight range, style. Renamed Plex subset: see assets/fonts/OFL.txt.
+// family, file, weight range. L7 Mono and L7 Hand are renamed subsets of IBM Plex
+// Mono and Reenie Beanie (Reserved Font Names); see assets/fonts/OFL.txt.
 const FONTS = [
   ['Sofia Sans Condensed', 'SofiaSansCondensed-VF.woff2', '400 800'],
   ['L7 Mono', 'L7Mono-Regular.woff2', '400'],
   ['L7 Mono', 'L7Mono-Medium.woff2', '500'],
   ['Michroma', 'Michroma-Regular.woff2', '400'],
-  ['Reenie Beanie', 'ReenieBeanie-Regular.woff2', '400'],
+  ['L7 Hand', 'L7Hand-Regular.woff2', '400'],
 ];
 
 async function fontFaces() {
-  let css = '';
+  // OFL 1.1 §2: every copy carries the copyright notices and the licence. The
+  // notice (families, copyright lines, modifications, full licence text) rides
+  // in a CSS comment ahead of the @font-face rules, so it survives into both
+  // dist/index.html and dist/embed.html.
+  const notice = (await readFile('assets/fonts/OFL.txt', 'utf8')).replace(/\*\//g, '* /').trim();
+  let css = `/*\n${notice}\n*/\n`;
   let bytes = 0;
   for (const [family, file, weight] of FONTS) {
     const buf = await readFile(`assets/fonts/${file}`);

@@ -2,25 +2,33 @@ LETHE-7 embedded fonts
 ======================
 
 All fonts in this directory are licensed under the SIL Open Font License,
-Version 1.1 (full text below). They were taken from the Google Fonts library
-(github.com/google/fonts, the source of fonts.google.com), subset with
-fontTools/pyftsubset to Basic Latin, Latin-1, general punctuation, Cyrillic
-(U+0400-04FF), arrows, box drawing and geometric shapes, and converted to WOFF2.
-The build (scripts/build.mjs) inlines them into dist/index.html as data URIs.
+Version 1.1 (full text below; also at https://openfontlicense.org). They were
+taken from the Google Fonts library (github.com/google/fonts, the source of
+fonts.google.com), subset with fontTools to Basic Latin, Latin-1, general
+punctuation, Cyrillic (U+0400-04FF), arrows, box drawing and geometric shapes,
+and converted to WOFF2. subset.py in this folder rebuilds them from the
+upstream files. Each file keeps its copyright (name ID 0) and licence
+(name IDs 13 and 14) records. The build (scripts/build.mjs) inlines them into
+dist/index.html and dist/embed.html as data URIs, together with this notice.
 
-  SofiaSansCondensed-VF.woff2  Sofia Sans Condensed, variable, wght axis limited to 400-800
+  SofiaSansCondensed-VF.woff2  Sofia Sans Condensed, variable, wght axis limited to 400-800.
+                               Modified: the Russian Cyrillic letterforms (the font's own
+                               RUS 'locl' alternates) are made the default Cyrillic glyphs.
                                Copyright 2019 The Sofia Sans Project Authors
                                (https://github.com/lettersoup/Sofia-Sans)
-  L7Mono-Regular.woff2         Modified (subset) version of IBM Plex Mono Regular
-  L7Mono-Medium.woff2          Modified (subset) version of IBM Plex Mono Medium
+  L7Mono-Regular.woff2         Modified Version (subset, renamed) of IBM Plex Mono Regular
+  L7Mono-Medium.woff2          Modified Version (subset, renamed) of IBM Plex Mono Medium
                                Copyright 2017 IBM Corp., with Reserved Font Name "Plex".
                                Because "Plex" is a Reserved Font Name and subsetting is a
                                modification, the subset is renamed "L7 Mono".
   Michroma-Regular.woff2       Michroma, subset to A-Z, 0-9 and a few marks (logo only)
                                Copyright 2011 The Michroma Project Authors
                                (https://github.com/googlefonts/Michroma-font)
-  ReenieBeanie-Regular.woff2   Reenie Beanie (handwritten notes)
-                               Copyright (c) 2010, James Grieshaber (james@typeco.com)
+  L7Hand-Regular.woff2         Modified Version (subset, renamed) of Reenie Beanie
+                               (handwritten notes)
+                               Copyright (c) 2010, James Grieshaber (james@typeco.com).
+                               The font's own metadata declares "Reenie Beanie" a Reserved
+                               Font Name, so the subset is renamed "L7 Hand".
 
 -----------------------------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007

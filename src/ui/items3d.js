@@ -281,7 +281,7 @@ const BUILDERS = {
       c.fillStyle = '#b2b5b6'; c.beginPath(); c.arc(24, 24, 24, 0, 7); c.fill();
       c.strokeStyle = '#8a8e90'; c.lineWidth = 2; c.beginPath(); c.arc(24, 24, 21, 0, 7); c.stroke();
       c.save(); c.translate(24, 26); c.rotate(-0.12);
-      txt(c, 'FOR W.', 0, 4, 13, '#55595c', 'Reenie Beanie, cursive', '400', 'center');
+      txt(c, 'FOR W.', 0, 4, 13, '#55595c', "'L7 Hand', cursive", '400', 'center');
       c.restore();
     });
     const rim = lam(0x8e9294);

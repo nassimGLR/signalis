@@ -34,6 +34,15 @@ function safe(fn, fallback) { try { return fn(); } catch (e) { console.error(e);
 function store(key, fallback) { try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch (e) { return fallback; } }
 function persist(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } }
 function clickable(e) { e.setAttribute('data-click', ''); return e; }
+// writes only on change, so per-frame callers never dirty the DOM
+function setText(e, s) { if (e && e.textContent !== s) e.textContent = s; }
+// "PG i/n" for a scroller, one page per visible height; the last page shows at the end
+function pageLabel(sc) {
+  const h = Math.max(1, sc.clientHeight), max = sc.scrollHeight - h;
+  const n = Math.max(1, Math.ceil(sc.scrollHeight / h - 0.02));
+  const i = max <= 2 || sc.scrollTop >= max - 2 ? n : Math.min(n, Math.floor(sc.scrollTop / h + 0.02) + 1);
+  return `PG ${i}/${n}`;
+}
 
 export const GLOSS = {
   ITEMS: 'ПРЕДМЕТЫ', MAP: 'КАРТА', FILES: 'АРХИВ', RECEIVER: 'ПРИЁМНИК', CONDITION: 'СОСТОЯНИЕ',
@@ -300,7 +309,7 @@ export class UI {
   loadFonts() {
     if (!document.fonts || !document.fonts.load) return Promise.resolve();
     const faces = ['400 16px "Sofia Sans Condensed"', '500 16px "Sofia Sans Condensed"', '800 16px "Sofia Sans Condensed"',
-      '400 16px "L7 Mono"', '500 16px "L7 Mono"', '400 16px "Michroma"', '400 16px "Reenie Beanie"'];
+      '400 16px "L7 Mono"', '500 16px "L7 Mono"', '400 16px "Michroma"', '400 16px "L7 Hand"'];
     const all = Promise.all(faces.map((f) => document.fonts.load(f).catch(() => null))).then(() => document.fonts.ready);
     return Promise.race([all, new Promise((r) => setTimeout(r, 4000))]);
   }
@@ -387,7 +396,11 @@ export class UI {
     const q = Math.round(clamp(Number(level) || 0, 0, 1) * 20) / 20;
     if (q === this._low) return;
     this._low = q;
-    this.uiRoot.style.filter = q > 0.001 ? `saturate(${(1 - 0.75 * q).toFixed(2)})` : '';
+    // The grade goes on #hud and on each screen's content, never on #ui itself: a
+    // filter on #ui would make it the backdrop root, and the OS, locker and menu
+    // backdrop-filters would stop dimming the world behind them.
+    this.uiRoot.style.setProperty('--low-sat', (1 - 0.75 * q).toFixed(2));
+    this.uiRoot.classList.toggle('low', q > 0.001);
     $('#lowhp').classList.toggle('on', q > 0.5);
   }
 
@@ -434,6 +447,9 @@ export class UI {
     const s = this.dialogState;
     const line = s.lines[s.i];
     const n = Math.floor(s.shown);
+    // only touch the DOM when a character or the line changed (no per-frame rebuild)
+    if (s.drawnI === s.i && s.drawnN === n) return;
+    s.drawnI = s.i; s.drawnN = n;
     $('.who', s.box).textContent = line.who || '';
     s.box.classList.toggle('has-who', !!line.who);
     // untyped remainder is laid out invisibly so the wrap never jumps
@@ -475,16 +491,19 @@ export class UI {
     const root = el('div', 'screen catcher');
     const modal = { el: root, passive: true };
     const text = String(question ?? '');
-    let shown = 0, sel = 0, ready = false, ticked = 0;
+    let shown = 0, sel = 0, ready = false, ticked = 0, drawnN = -1;
     const row = $('.choices', box);
     const optEls = [];
     const pick = (v) => { audio.uiSelect(); modal.resolve(v); };
     const draw = () => {
       const n = Math.floor(shown);
-      $('.who', box).textContent = '';
-      box.classList.remove('has-who');
-      $('.text', box).innerHTML = `${esc(text.slice(0, n))}<span class="ghost">${esc(text.slice(n))}</span>`;
-      $('.idx', box).textContent = '';
+      if (n !== drawnN) {
+        drawnN = n;
+        $('.who', box).textContent = '';
+        box.classList.remove('has-who');
+        $('.text', box).innerHTML = `${esc(text.slice(0, n))}<span class="ghost">${esc(text.slice(n))}</span>`;
+        $('.idx', box).textContent = '';
+      }
       optEls.forEach((e, i) => e.classList.toggle('sel', i === sel));
     };
     const reveal = () => {
@@ -725,7 +744,7 @@ export class UI {
     const p = el('div', 'panel man-panel');
     const rows = MANUAL_ROWS.map(([a, m, kb, pd]) => `<div class="mr"><div class="m-a">${esc(a)}</div><div class="m-m" data-h="MOUSE">${m}</div><div class="m-k" data-h="KEYBOARD">${kb}</div><div class="m-p" data-h="PAD">${esc(pd)}</div></div>`).join('');
     p.innerHTML = this.panelHead('MANUAL', GLOSS.MANUAL, 'L7-OS / MAN-01 · REV 3')
-      + `<div class="man-body">
+      + `<div class="man-wrap"><div class="man-body">
         <div class="man-sub">CUSTODIAN OPERATING PROCEDURES</div>
         <div class="man-table"><div class="mr mh"><div>ACTION</div><div>MOUSE</div><div>KEYBOARD</div><div>PAD</div></div>${rows}</div>
         <div class="man-notes">
@@ -737,17 +756,30 @@ export class UI {
             <li>Backups are written by hand, at a backup deck. Nothing is written for you.</li>
           </ol>
         </div>
-        <div class="man-type">Type: Sofia Sans Condensed, L7 Mono (from IBM Plex Mono), Michroma, Reenie Beanie. SIL Open Font License 1.1.</div>
-      </div>`
-      + `<div class="p-foot"><div class="btn back" data-click>BACK</div><div class="keys">${K('Esc')} or ${MB('R', '')} back</div></div>`;
+        <div class="man-type">Type: Sofia Sans Condensed, L7 Mono (from IBM Plex Mono), Michroma, L7 Hand (from Reenie Beanie). SIL Open Font License 1.1.</div>
+      </div><div class="man-fade"></div><div class="man-track"><i></i></div></div>`
+      + `<div class="p-foot"><div class="btn back" data-click>BACK</div><span class="pg"></span><div class="keys">wheel scroll <i></i> ${K('↑')}${K('↓')} scroll <i></i> ${K('Esc')} or ${MB('R', '')} back</div></div>`;
     root.appendChild(p);
     const modal = { el: root };
     $('.back', p).addEventListener('click', () => { audio.uiBack(); modal.resolve(); });
-    const body = $('.man-body', p);
+    const body = $('.man-body', p), wrap = $('.man-wrap', p), pg = $('.pg', p), thumb = $('.man-track i', p);
+    // page readout, scroll tick and a bottom fade while more of the page is below
+    const page = () => {
+      const max = body.scrollHeight - body.clientHeight;
+      wrap.classList.toggle('scrolls', max > 2);
+      wrap.classList.toggle('more', max > 2 && body.scrollTop < max - 2);
+      setText(pg, max > 2 ? pageLabel(body) : '');
+      thumb.style.height = (100 * body.clientHeight / Math.max(1, body.scrollHeight)).toFixed(1) + '%';
+      thumb.style.top = (100 * body.scrollTop / Math.max(1, body.scrollHeight)).toFixed(1) + '%';
+    };
+    body.addEventListener('scroll', page);
+    requestAnimationFrame(page);
     modal.update = (input, dt, k) => {
       if (k.back || k.ok) { audio.uiBack(); modal.resolve(); return; }
       if (k.up) body.scrollTop -= 48;
       if (k.down) body.scrollTop += 48;
+      if (input.hit('PageUp')) body.scrollTop -= body.clientHeight * 0.9;
+      if (input.hit('PageDown')) body.scrollTop += body.clientHeight * 0.9;
     };
     audio.uiSelect();
     return this.open(modal);
@@ -870,11 +902,7 @@ export class UI {
       + `<div class="df-foot"><span class="pg"></span><span class="keys">wheel scroll <i></i> ${MB('L', '')} close</span></div>`;
     root.appendChild(frame);
     const scroll = $('.df-scroll', frame), pg = $('.pg', frame);
-    const page = () => {
-      const n = Math.max(1, Math.ceil(scroll.scrollHeight / Math.max(1, scroll.clientHeight) - 0.02));
-      const i = Math.min(n, Math.floor(scroll.scrollTop / Math.max(1, scroll.clientHeight) + 0.02) + 1);
-      pg.textContent = `PG ${i}/${n}`;
-    };
+    const page = () => setText(pg, pageLabel(scroll));
     scroll.addEventListener('scroll', page);
     const modal = { el: root, passive: true };
     modal.update = (input, dt, k) => {
@@ -1638,11 +1666,7 @@ export class UI {
       persist('lethe7-read', [...ui.readFiles]);
       requestAnimationFrame(page);
     };
-    const page = () => {
-      const n = Math.max(1, Math.ceil(scroll.scrollHeight / Math.max(1, scroll.clientHeight) - 0.02));
-      const i = Math.min(n, Math.floor(scroll.scrollTop / Math.max(1, scroll.clientHeight) + 0.02) + 1);
-      pg.textContent = sel ? `PG ${i}/${n}` : '';
-    };
+    const page = () => setText(pg, sel ? pageLabel(scroll) : '');
     scroll.addEventListener('scroll', page);
     renderCats(); renderList(); renderDoc();
     v.update = (dt, k) => {
@@ -1766,11 +1790,16 @@ export class UI {
     const p = el('div', 'os locker');
     p.innerHTML = `<header class="os-head"><div class="os-brand"><span class="os-mark">L7</span><span class="os-name">PNEUMATIC LOCKER <span class="ru">${GLOSS.STORAGE}</span></span></div><div class="os-meta"><span>TUBE NETWORK · DECK 2</span></div><div class="os-close" data-click title="Close">CLOSE<i></i></div></header>
       <div class="lk-body">
-        <div class="lk-col carried"><div class="lbl">CARRIED <span class="sub">6 CLIP POINTS</span></div><div class="lk-slots"></div></div>
+        <div class="lk-col carried"><div class="lbl">CARRIED <span class="sub">${SLOTS} CLIP POINTS</span></div><div class="lk-slots"></div></div>
         <div class="lk-mid"><span class="arrow">◂</span><span class="tube"></span><span class="arrow">▸</span></div>
         <div class="lk-col locker"><div class="lbl">LOCKER <span class="sub">SHARED ACROSS THE STATION</span></div><div class="lk-grid"></div></div>
+        <div class="lk-side">
+          <div class="lbl">SELECTED <span class="sub lk-where">—</span></div>
+          <div class="lk-view"><canvas class="lk-pv" width="64" height="64"></canvas><div class="lk-none">EMPTY</div></div>
+          <div class="lk-info"><div class="nm"></div><div class="kd mono"></div><div class="ds"></div></div>
+          <div class="lk-cap mono"><div><span>CLIP POINTS</span><b class="cc"></b></div><div><span>LOCKER BAYS</span><b class="bc"></b></div></div>
+        </div>
       </div>
-      <div class="lk-info"><div class="nm"></div><div class="ds"></div></div>
       <footer class="os-foot"><div class="os-help">click move <i></i> drag between panes <i></i> ${MB('R', '')} / ${K('Esc')} close</div><div class="os-log"></div><div class="os-code">L7-OS / STR-24</div></footer>`;
     root.appendChild(p);
     const modal = { el: root, os: true };
@@ -1795,15 +1824,33 @@ export class UI {
         });
         $('.qty', d).textContent = def.kind === 'weapon' && item.loaded !== undefined ? pad(item.loaded) : def.stack > 1 ? '×' + item.qty : '';
       }
-      d.addEventListener('mouseenter', () => { hover = item; info(item); });
-      d.addEventListener('mouseleave', () => { hover = null; info(which === 'c' ? inv.slots[iSel] : inv.box[bSel]); });
+      d.addEventListener('mouseenter', () => { hover = { which, i }; info(which, i); });
+      d.addEventListener('mouseleave', () => { hover = null; info(col === 0 ? 'c' : 'b', col === 0 ? iSel : bSel); });
       d.addEventListener('click', () => { if (dragEnded) return; if (which === 'c') { col = 0; iSel = i; } else { col = 1; bSel = i; } move(); });
       d.addEventListener('mousedown', (e) => { if (e.button === 0 && item) drag = { which, i, x: e.clientX, y: e.clientY, on: false }; });
       return d;
     };
-    const info = (item) => {
-      $('.lk-info .nm', p).textContent = item ? itemDef(item.id).name : '';
-      $('.lk-info .ds', p).textContent = item ? itemDef(item.id).desc : '';
+    const pv = $('.lk-pv', p), pvg = pv.getContext('2d'), view = $('.lk-view', p);
+    let pvId;
+    const info = (which, i) => {
+      const item = which === 'c' ? inv.slots[i] : inv.box[i];
+      const def = item ? itemDef(item.id) : null;
+      setText($('.lk-where', p), which === 'c' ? `CLIP POINT ${i + 1}` : `BAY ${pad(i + 1)}`);
+      setText($('.lk-info .nm', p), def ? def.name : '—');
+      setText($('.lk-info .kd', p), !def ? (which === 'c' ? 'FREE CLIP POINT' : 'EMPTY BAY')
+        : [String(def.kind || 'misc').toUpperCase(), def.kind === 'weapon' && item.loaded !== undefined ? `LOADED ${pad(item.loaded)}` : def.stack > 1 ? `QTY ${pad(item.qty)}` : ''].filter(Boolean).join(' · '));
+      setText($('.lk-info .ds', p), def ? def.desc : '');
+      // a larger render of the selected item (half-res, nearest-upscaled like the slots)
+      const id = item ? item.id : null;
+      if (id !== pvId) {
+        pvId = id;
+        pvg.clearRect(0, 0, 64, 64);
+        view.classList.toggle('none', !id);
+        if (id) {
+          const th = itemThumb(id, 64) || safe(() => drawIcon(id), null);
+          if (th) { pvg.imageSmoothingEnabled = false; pvg.drawImage(th, 0, 0, 64, 64); }
+        }
+      }
     };
     let flash = null;
     const render = () => {
@@ -1817,7 +1864,9 @@ export class UI {
         if (d) d.classList.add('flash');
         flash = null;
       }
-      info(hover || (col === 0 ? inv.slots[iSel] : inv.box[bSel]));
+      if (hover) info(hover.which, hover.i); else info(col === 0 ? 'c' : 'b', col === 0 ? iSel : bSel);
+      setText($('.lk-cap .cc', p), `${pad(inv.slots.filter(Boolean).length)} / ${pad(SLOTS)}`);
+      setText($('.lk-cap .bc', p), `${pad(inv.box.length)} / ${pad(capacity)}`);
     };
     const move = () => {
       if (col === 0) {
