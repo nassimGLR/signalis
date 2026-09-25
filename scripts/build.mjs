@@ -1,20 +1,43 @@
 // Bundles the game into dist/index.html — a single self-contained file that
 // runs straight from disk (no server needed) and can be hosted anywhere.
+// The OFL fonts in assets/fonts are inlined as @font-face data URIs, so the
+// page makes no network requests at all.
 import * as esbuild from 'esbuild';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 
 const watch = process.argv.includes('--watch');
 
+// family, file, weight range, style. Renamed Plex subset: see assets/fonts/OFL.txt.
+const FONTS = [
+  ['Sofia Sans Condensed', 'SofiaSansCondensed-VF.woff2', '400 800'],
+  ['L7 Mono', 'L7Mono-Regular.woff2', '400'],
+  ['L7 Mono', 'L7Mono-Medium.woff2', '500'],
+  ['Michroma', 'Michroma-Regular.woff2', '400'],
+  ['Reenie Beanie', 'ReenieBeanie-Regular.woff2', '400'],
+];
+
+async function fontFaces() {
+  let css = '';
+  let bytes = 0;
+  for (const [family, file, weight] of FONTS) {
+    const buf = await readFile(`assets/fonts/${file}`);
+    bytes += buf.length;
+    css += `@font-face{font-family:'${family}';src:url(data:font/woff2;base64,${buf.toString('base64')}) format('woff2');font-weight:${weight};font-style:normal;font-display:block}\n`;
+  }
+  return { css, bytes };
+}
+
 async function assemble(result) {
   const js = result.outputFiles.find((f) => f.path.endsWith('.js')).text;
-  const css = await readFile('src/ui/style.css', 'utf8');
+  const fonts = await fontFaces();
+  const css = fonts.css + await readFile('src/ui/style.css', 'utf8');
   const shell = await readFile('src/index.html', 'utf8');
   const html = shell
     .replace('/*__STYLE__*/', () => css)
     .replace('/*__SCRIPT__*/', () => js.replace(/<\/script/gi, '<\\/script'));
   await mkdir('dist', { recursive: true });
   await writeFile('dist/index.html', html);
-  console.log(`[build] dist/index.html  ${(html.length / 1024).toFixed(0)} KB`);
+  console.log(`[build] dist/index.html  ${(html.length / 1024).toFixed(0)} KB  (fonts ${(fonts.bytes / 1024).toFixed(0)} KB raw)`);
   // Embeddable variant: page content only (the host supplies doctype/head/body).
   const embed = html
     .replace(/<!doctype html>\s*/i, '')

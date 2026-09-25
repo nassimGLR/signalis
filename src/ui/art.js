@@ -1,4 +1,5 @@
-// Procedural 2D art: inventory icons and memory illustrations.
+// Procedural 2D art: fallback inventory icons (the OS renders 3D items via
+// items3d.js) and the memory illustrations.
 // Painted with canvas primitives, then quantised with ordered dithering to a
 // small palette so they read as low-colour pixel art.
 import { Tex, rng } from '../engine/textures.js';
@@ -153,6 +154,8 @@ function figureBob(g, x, y, s, col) {
 }
 
 export function drawMemory(key) {
+  // 'handover' is the new name of the cryo-pod memory (plan §7.1); keep both.
+  if (key === 'handover') key = 'promise';
   const W = 320, H = 180;
   const [c, g] = cv(W, H);
   const R = rng(key.length * 77);
