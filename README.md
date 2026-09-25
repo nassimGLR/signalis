@@ -30,17 +30,41 @@ npm run dev          # http://localhost:8080
 
 ### Controls
 
-| Action | Keyboard / mouse | Gamepad |
-| --- | --- | --- |
-| Move | WASD / arrow keys | Left stick / D-pad |
-| Run | Shift | B / LB |
-| Aim | Right mouse or Space (aim with mouse, or WASD to turn) | LT (right stick aims) |
-| Fire | Left click or F while aiming | RT / X |
-| Reload | R | Y |
-| Interact / confirm | E or Enter | A |
-| Inventory (items, files, map) | Tab or I | Select |
-| Map | M | RB |
-| Pause / back | Esc | Start |
+The mouse drives everything; the keyboard and a gamepad are full equivalents.
+
+| Action | Mouse | Keyboard | Gamepad |
+| --- | --- | --- | --- |
+| Walk toward the pointer | Hold left button | WASD / arrow keys | Left stick |
+| Go to a spot / use a thing | Click the floor, or click a thing or its white bracket | — | — |
+| Run | Shift + any movement, or double-click a destination | Shift (hold, or toggle in Options) | B (hold) |
+| Ready weapon | Hold right button | Space | LT |
+| Fire | Left button while ready | J | RT |
+| Interact / finish | Click it | F (E also works) | A |
+| Reload | Forward side button (Mouse 5) | R | RB |
+| Use tool | Back side button (Mouse 4) | C | LB |
+| Receiver on / off | Middle click | T | View / Select |
+| Tune (receiver on) | Wheel | Q / E | D-pad ◂ ▸ |
+| Inventory (items, files, map) | — | Tab / I | X |
+| Map | — | M / Caps Lock | Y |
+| Pause | — | Esc / P | Start |
+| Menu confirm / back | Click / right button | Enter, Space, E / Esc, Backspace, Q, Tab | A / B |
+
+- Things within reach get white corner brackets and a verb (TAKE, READ, OPEN…).
+  Point at one and click to walk over and use it. A bracket drawn faint with
+  `»` after its verb means "out of reach — click to walk there". A click is
+  anything shorter than a hold-walk, or a press released within about half a
+  second without moving the pointer.
+- Readying locks onto the Hollow under the pointer (or the nearest one when you
+  ready with Space or LT). A box closes around it while you hold steady: a
+  closed red box hits harder and more often critically. A cross in the box means
+  no line of sight. Walking with the keys while ready is slow; the mouse alone
+  keeps you planted.
+- With the pointer resting, Wren turns her head, then her body and chest lamp,
+  toward it. Options can turn this off, set movement to keys only, change when
+  the aim cursor shows, run to far points, show the walk path, and make run or
+  ready a toggle.
+- On touch screens, tap the floor to go and tap a thing to use it; the stick and
+  buttons do the rest.
 
 You save at the red **Mnemonic Recorder** terminals in the Quiet Rooms. The
 storage trunks in those rooms share their contents.
@@ -89,7 +113,10 @@ scripts/
 
 ```bash
 node scripts/shot.mjs full   # tours every room, opens inventory/files/map
-node scripts/shot.mjs play   # scripted playthrough from wake-up to ending
+node scripts/shot.mjs play   # keyboard playthrough (F interacts, J fires) to the ending
+node scripts/shot.mjs mouse  # click-to-go, hold-walk, click-to-use, doors, aim/focus, cursor
+node scripts/shot.mjs touch  # phone-sized: tap to go, tap to use
 ```
 
+Each check prints `PASS …` or `FAIL …`, and the script exits 1 if any fail.
 Screenshots go to `shots/`.

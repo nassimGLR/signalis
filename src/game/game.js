@@ -12,6 +12,7 @@ import { ROOMS, PICKUPS, ENEMIES, FIXTURES, PLAYER_START } from './map.js';
 import { INTRO, EXAMINE, ENDING } from './story.js';
 import { UI } from '../ui/ui.js';
 import { M } from './props.js';
+import { Controls, CAM, FIXTURE_VERB } from './controls.js';
 
 const SAVE_KEY = 'lethe7-save';
 const RELAY_CODE = '7304';
@@ -23,6 +24,8 @@ export class Game {
     this.renderer = new Renderer(this.canvas);
     this.input = new Input(this.canvas);
     this.ui = new UI(this.input);
+    this.interactProviders = [() => this.pickupCandidates(), () => this.fixtureCandidates(), () => this.doorCandidates()];
+    this.controls = new Controls(this); // mouse-first controls, cursor overlay (workstream C)
     this.camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.5, 80);
     this.renderer.onResize = (a) => { this.camera.aspect = a; this.camera.updateProjectionMatrix(); if (this.titleCam) { this.titleCam.aspect = a; this.titleCam.updateProjectionMatrix(); } };
     this.renderer.onResize(this.renderer.aspect);
@@ -94,8 +97,8 @@ export class Game {
       await this.wait(0.4);
       await this.ui.say(EXAMINE.wake, 'WREN');
       this.ui.toast('Objective: <b>find out who woke you</b>');
-      if (document.body.classList.contains('touching')) this.ui.toast('<b>STICK</b> move · <b>ACT</b> interact · <b>AIM</b> + <b>FIRE</b> to shoot');
-      else this.ui.toast('<b>WASD</b> move · <b>SHIFT</b> run · <b>E</b> interact · <b>TAB</b> inventory');
+      if (document.body.classList.contains('touching')) this.hint('controls-touch', 'Tap the floor to go, tap a thing to use it · stick to walk · <b>ACT</b> interact');
+      else this.hint('controls', 'Hold [LMB] to walk toward the pointer · click to go or use · [F] interact · [Tab] inventory');
     });
   }
 
@@ -309,48 +312,27 @@ export class Game {
     this.updateGlints(dt);
     this.ui.prompt(null);
     this.ui.ammo(false);
+    this.controls.paused(dt);
   }
 
   update(dt) {
     const input = this.input;
     const P = this.player;
+    const C = this.controls;
+    C.begin(dt);
 
     // menus
     if (input.pause) { this.openPause(); return; }
     if (input.inventory && !P.dead) { this.openInventory('items'); return; }
     if (input.map && !P.dead) { this.openInventory('map'); return; }
 
-    // controls
+    // controls: mouse walk / click-to-go / use, aim and focus (see controls.js)
     const weapon = this.inv.weapon();
-    const aimHeld = input.aim;
-    if (aimHeld && !this.aimWasHeld) { this.mouseAim = input.mouse.right; this.autoAimDone = false; }
-    if (!aimHeld) this.mouseAim = false;
-    if (aimHeld && input.mouse.moved) this.mouseAim = true;
-    this.aimWasHeld = aimHeld;
-
-    const move = input.moveVector();
-    let aimDir = null;
-    if (aimHeld && weapon) {
-      const stick = input.aimStick();
-      if (stick) aimDir = new THREE.Vector2(stick.x, stick.y);
-      else if (this.mouseAim) aimDir = this.mouseGroundDir();
-      else if (Math.hypot(move.x, move.y) < 0.2 && !this.autoAimDone) {
-        const t = this.nearestTarget(null);
-        if (t) aimDir = new THREE.Vector2(t.pos.x - P.pos.x, t.pos.z - P.pos.z);
-        this.autoAimDone = true;
-      }
-      // soft aim assist
-      const base = aimDir || (Math.hypot(move.x, move.y) > 0.2 ? new THREE.Vector2(move.x, move.y) : new THREE.Vector2(Math.sin(P.aimYaw), Math.cos(P.aimYaw)));
-      const t = this.nearestTarget(base, 0.2);
-      if (t) aimDir = new THREE.Vector2(t.pos.x - P.pos.x, t.pos.z - P.pos.z);
-    }
-    input.mouse.moved = false;
+    const cmd = C.update(dt, weapon);
 
     const room = this.state.currentRoom;
     const surface = { plate: 'plate', grate: 'grate', carpet: 'carpet', tile: 'plate', concrete: 'plate' }[ROOMS[room].floor];
-    P.update(dt, {
-      move, run: input.run, aim: aimHeld, hasWeapon: !!weapon, aimDir, enemies: this.enemies,
-    }, this.world, surface);
+    P.update(dt, { ...cmd, hasWeapon: !!weapon, enemies: this.enemies }, this.world, surface);
 
     // combat
     if (P.aiming && input.fire) this.fire();
@@ -371,14 +353,11 @@ export class Game {
     this.updateGlints(dt);
     this.particles.update(dt);
 
-    // interactables
-    const it = P.dead ? null : this.findInteractable();
-    this.ui.prompt(it ? it.label : null);
-    if (it && input.interact) this.script(() => it.run());
+    // interactables: F / E / pad A (the mouse uses things through controls.update)
+    C.interactStep();
 
-    // HUD
-    if (weapon) this.ui.ammo(P.aiming || P.reloadT > 0, weapon.loaded, this.inv.count('ammo'));
-    else this.ui.ammo(false);
+    // HUD: the aim readout is drawn by the cursor overlay
+    this.ui.ammo(false);
 
     // atmosphere
     let threat = 0;
@@ -401,6 +380,7 @@ export class Game {
     if (P.dead && P.deadT > 2.2 && !this.deathShown) { this.deathShown = true; this.onDeath(); }
 
     this.updateCamera(dt);
+    C.lateUpdate(dt);
   }
 
   updateGlints(dt) {
@@ -426,31 +406,78 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ camera
+  // ---- controls (workstream C) ----
+  // A steep, narrow camera (nearly orthographic) framed on the current room.
+  // A room smaller than the view is centred along that axis; a larger one
+  // clamps the view so its edge stays within 1 m of the walls. The pointer
+  // (or the facing, without a mouse) leads it slightly.
   updateCamera(dt, snap = false) {
     const P = this.player;
-    const look = new THREE.Vector3(P.pos.x, 0, P.pos.z);
-    const ahead = P.aiming ? 1.6 : 0.9 * Math.min(1, P.speed / 2);
-    look.x += Math.sin(P.yaw) * ahead;
-    look.z += Math.cos(P.yaw) * ahead;
-    if (snap) this.camTarget.copy(look);
-    else this.camTarget.lerp(look, Math.min(1, dt * 3.2));
-    const pitch = THREE.MathUtils.degToRad(58);
+    const cam = this.camera;
+    if (cam.fov !== CAM.fov) { cam.fov = CAM.fov; cam.updateProjectionMatrix(); }
+    const pitch = THREE.MathUtils.degToRad(CAM.pitch);
     // pull back on narrow (portrait) screens so rooms still fit across
-    const dist = 14.5 * Math.min(1.9, Math.max(1, 1.15 / this.camera.aspect));
-    this.camera.position.set(
+    const dist = CAM.dist * Math.min(1.9, Math.max(1, 1.15 / cam.aspect));
+
+    // lead
+    let lx = 0, lz = 0;
+    const C = this.controls, m = this.input.mouse;
+    const gp = !snap && C && C.cursorActive && this.input.lastDevice === 'kb' && m.inWindow && this.mode === 'play' && !this.paused ? C.groundAt(0) : null;
+    if (gp) {
+      // measured from the view centre, not from Wren, so the camera moving
+      // doesn't shift what's under a still pointer (no feedback loop)
+      const k = P.aiming ? 0.25 : 0.15;
+      lx = (gp.x - this.camTarget.x) * k; lz = (gp.z - this.camTarget.z) * k;
+    } else {
+      const ahead = P.aiming ? 1.2 : 0.9 * Math.min(1, P.speed / 2);
+      lx = Math.sin(P.yaw) * ahead; lz = Math.cos(P.yaw) * ahead;
+    }
+    const ll = Math.hypot(lx, lz);
+    if (ll > 1.6) { lx *= 1.6 / ll; lz *= 1.6 / ll; }
+
+    // room framing
+    let tx = P.pos.x + lx, tz = P.pos.z + lz;
+    const room = this.world && this.world.rooms[this.state.currentRoom];
+    if (room) {
+      const half = THREE.MathUtils.degToRad(cam.fov) / 2;
+      const camY = CAM.lookY + Math.sin(pitch) * dist, camOff = Math.cos(pitch) * dist;
+      const vTop = camOff - camY / Math.tan(pitch - half);
+      const vBot = camOff - camY / Math.tan(pitch + half);
+      const halfW = (camY / Math.sin(pitch)) * Math.tan(half) * cam.aspect;
+      const frame = (t, lo, hi, vlo, vhi) => {
+        if (hi - lo <= vhi - vlo) return (lo + hi) / 2 - (vlo + vhi) / 2;
+        return Math.min(hi + CAM.margin - vhi, Math.max(lo - CAM.margin - vlo, t));
+      };
+      tx = frame(tx, room.x0, room.x1 + 1, -halfW, halfW);
+      // the north wall stands up into the frame; the south wall is a stub
+      tz = frame(tz, room.z0 - 2.6 / Math.tan(pitch), room.z1 + 1.2, vTop, vBot);
+    }
+    if (this._camRoom !== this.state.currentRoom) { this._camRoom = this.state.currentRoom; this._camBlend = 0.35; }
+    this._camBlend = Math.max(0, (this._camBlend || 0) - dt);
+    const rate = this._camBlend > 0 ? 10 : 3.2;
+    if (snap) this.camTarget.set(tx, 0, tz);
+    else {
+      const k = 1 - Math.exp(-dt * rate);
+      this.camTarget.x += (tx - this.camTarget.x) * k;
+      this.camTarget.z += (tz - this.camTarget.z) * k;
+    }
+    cam.position.set(
       this.camTarget.x,
-      this.camTarget.y + Math.sin(pitch) * dist,
+      CAM.lookY + Math.sin(pitch) * dist,
       this.camTarget.z + Math.cos(pitch) * dist,
     );
-    this.camera.lookAt(this.camTarget.x, 0.6, this.camTarget.z);
+    cam.lookAt(this.camTarget.x, CAM.lookY, this.camTarget.z);
+    if (this.scene && this.scene.fog) { this.scene.fog.near = dist + 4; this.scene.fog.far = dist + 20; }
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 1.8);
       const s = this.shake * 0.25;
-      this.camera.position.x += (Math.random() - 0.5) * s;
-      this.camera.position.y += (Math.random() - 0.5) * s;
+      cam.position.x += (Math.random() - 0.5) * s;
+      cam.position.y += (Math.random() - 0.5) * s;
     }
+    cam.updateMatrixWorld();
   }
 
+  // Aim direction from the pointer, on the chest-height plane.
   mouseGroundDir() {
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2(this.input.mouse.nx, this.input.mouse.ny), this.camera);
@@ -459,6 +486,21 @@ export class Game {
     if (!ray.ray.intersectPlane(plane, hit)) return null;
     const d = new THREE.Vector2(hit.x - this.player.pos.x, hit.z - this.player.pos.z);
     return d.lengthSq() > 0.01 ? d : null;
+  }
+
+  // World point → CSS pixels (harness / overlay helper).
+  worldToScreen(x, y, z) {
+    const p = this.controls.worldToScreen(x, y, z);
+    return { x: p.x, y: p.y };
+  }
+
+  // Controller snapshot for harnesses (plan §3.8).
+  get ctl() { return this.controls.snapshot(); }
+
+  hint(id, html) {
+    if (this.ui.hint) return this.ui.hint(id, html);
+    this.ui.toast(html.replace(/\[([^\]]{1,12})\]/g, '<b>$1</b>'));
+    return true;
   }
 
   nearestTarget(dir, maxAngle = Math.PI) {
@@ -500,8 +542,11 @@ export class Game {
     P.flashMuzzle(this.camera);
     this.shake = Math.max(this.shake, 0.18);
     this.glitchPulse = Math.max(this.glitchPulse, 0.12);
+    // focus: a settled box hits harder, crits more and doesn't wander
+    const { focus: f, locked } = this.controls.shot();
+    const spread = locked && f >= 0.8 ? 0 : THREE.MathUtils.degToRad(2) * (1 - f) * (Math.random() * 2 - 1);
     const o = P.muzzleWorld();
-    const dx = Math.sin(P.yaw), dz = Math.cos(P.yaw);
+    const dx = Math.sin(P.yaw + spread), dz = Math.cos(P.yaw + spread);
     const wallDist = this.world.raycast(o.x, o.z, dx, dz, 30);
     let hit = null, hitT = wallDist;
     for (const e of this.enemies) {
@@ -511,7 +556,10 @@ export class Game {
     const end = new THREE.Vector3(o.x + dx * Math.min(hitT, 30), o.y, o.z + dz * Math.min(hitT, 30));
     this.particles.tracer(o, end);
     if (hit) {
-      const killed = hit.takeHit(19 + Math.floor(Math.random() * 8), P.yaw);
+      const crit = Math.random() < 0.05 + 0.30 * f * f;
+      let dmg = 14 + 12 * f + Math.floor(Math.random() * 4);
+      if (crit) { dmg *= 2.2; this.glitchPulse = Math.max(this.glitchPulse, 0.25); }
+      const killed = hit.takeHit(Math.round(dmg), P.yaw, { crit, focus: f });
       this.particles.burst(end, 0x3a0608, 14, 2.2);
       this.particles.burst(end, 0xff3020, 4, 3);
       if (killed) this.glitchPulse = 0.5;
@@ -519,6 +567,7 @@ export class Game {
       this.particles.burst(end, 0xffe0a0, 8, 3);
       audio.impact(false);
     }
+    if (w.loaded === 0 && this.controls.settings.autoReload && this.inv.count('ammo') > 0) this.startReload();
   }
 
   startReload() {
@@ -551,34 +600,76 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ interaction
-  findInteractable() {
-    const P = this.player;
-    const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
-    let best = null, bestD = Infinity;
-    const consider = (x, z, r, label, run) => {
-      const dx = x - P.pos.x, dz = z - P.pos.z;
-      const d = Math.hypot(dx, dz);
-      if (d > r + 0.35) return;
-      const facing = d < 0.5 ? 1 : (dx * fx + dz * fz) / d;
-      if (facing < 0.1) return;
-      const score = d - facing * 0.5;
-      if (score < bestD) { bestD = score; best = { label, run }; }
-    };
+  // ---- controls (workstream C) ----
+  // Interactables come from `this.interactProviders`, each () => Candidate[]
+  // (plan §3.8): { id, kind, x, y, z, r (reach), size (m), label, red?, run }.
+  // Only things in the rooms currently on screen are offered.
+  interactCandidates() {
+    const out = [];
+    for (const provide of this.interactProviders) {
+      const list = provide();
+      if (list) for (const c of list) out.push(c);
+    }
+    return out;
+  }
+
+  pickupCandidates() {
+    const vis = this.world.visible;
+    const out = [];
     for (const p of this.pickups) {
       const d = p.def;
-      consider(d.x, d.z, 0.75, d.file ? 'READ' : 'TAKE', () => this.takePickup(p));
+      if (vis && !vis.has(d.room)) continue;
+      if (!p.cand) {
+        p.cand = {
+          id: d.id, kind: 'pickup', room: d.room, x: d.x, y: (d.y ?? 0) + 0.12, z: d.z, r: 0.75, size: 0.42,
+          label: d.file ? 'READ' : 'TAKE', run: () => this.takePickup(p),
+        };
+      }
+      out.push(p.cand);
     }
+    return out;
+  }
+
+  fixtureCandidates() {
+    const vis = this.world.visible;
+    const cache = this._fixtureCands || (this._fixtureCands = new Map());
+    const out = [];
     for (const f of FIXTURES) {
-      if (f.room !== this.state.currentRoom) continue;
-      const label = { save: 'RECORD', box: 'OPEN TRUNK', relay: 'PANEL', console: 'ARRAY CONSOLE' }[f.kind] || 'EXAMINE';
-      consider(f.x, f.z, f.r, label, () => this.fixture(f));
+      if (vis && !vis.has(f.room)) continue;
+      let c = cache.get(f);
+      if (!c) {
+        const label = FIXTURE_VERB[f.kind] || 'EXAMINE';
+        const big = f.r >= 1.5;
+        c = {
+          id: f.id, kind: 'fixture', room: f.room, x: f.x, y: big ? 1.2 : 0.9, z: f.z, r: f.r,
+          size: Math.max(0.55, Math.min(1.4, f.r * 0.8)), label, run: () => this.fixture(f),
+        };
+        cache.set(f, c);
+      }
+      out.push(c);
     }
+    return out;
+  }
+
+  doorCandidates() {
+    const vis = this.world.visible;
+    const out = [];
     for (const d of Object.values(this.world.doors)) {
       if (d.open) continue;
-      const cx = d.x + 0.5, cz = d.z + 0.5;
-      consider(cx, cz, 1.0, d.locked ? 'EXAMINE DOOR' : 'OPEN', () => this.useDoor(d));
+      if (vis && !vis.has(d.a) && !vis.has(d.b)) continue;
+      if (!d.cand) d.cand = { id: d.id, kind: 'door', door: d, x: d.x + 0.5, y: 1.25, z: d.z + 0.5, r: 1.0, size: 1.0, run: () => this.useDoor(d) };
+      d.cand.label = d.locked ? 'EXAMINE' : 'OPEN';
+      out.push(d.cand);
     }
-    return best;
+    return out;
+  }
+
+  // Facing-nearest interactable in reach (keyboard / pad rules): { label, run } | null.
+  findInteractable() {
+    this.controls.cands = this.interactCandidates();
+    const P = this.player;
+    for (const c of this.controls.cands) c.dist = Math.hypot(c.x - P.pos.x, c.z - P.pos.z);
+    return this.controls.facingTarget();
   }
 
   removePickup(p) {
@@ -681,7 +772,7 @@ export class Game {
         audio.pickup();
         this.ui.toast('OBTAINED: <b>P-17 SIDEARM</b> [8]');
         await this.ui.say(['A sidearm in the locker, still in its holster. Fully loaded.', 'Someone expected me to need this.'], 'WREN');
-        this.ui.toast('Hold <b>RIGHT MOUSE</b> or <b>SPACE</b> to aim · <b>CLICK</b> or <b>F</b> to fire');
+        this.hint('aim', 'Hold [RMB] or [Space] to ready · [LMB] or [J] to fire · wait for the box to close');
         return;
       case 'breaker': {
         if (F.breaker) return say('breaker_done');
@@ -819,6 +910,7 @@ export class Game {
   // Debug/test helper: jump somewhere without triggering room scripts.
   debugTeleport(x, z, yaw = 0) {
     this.player.setPosition(x, z, yaw);
+    this.controls.reset();
     const r = this.world.roomAt(x, z);
     if (r) { this.state.currentRoom = r; this.state.visited.add(r); }
     this.world.updateVisibility(this.state.currentRoom, z);
