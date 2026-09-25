@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { psx } from '../engine/renderer.js';
 import { Tex } from '../engine/textures.js';
 import { buildHollow, poseHollow } from '../engine/characters.js';
+import { ROOMS, SECTORS } from './map.js';
 
 const matCache = new Map();
 function lam(key, make) {
@@ -21,6 +22,7 @@ export const M = {
   fabricRed: () => lam('fabricRed', () => new THREE.MeshLambertMaterial({ map: Tex.fabric(120, 30, 36, 2) })),
   fabricWhite: () => lam('fabricWhite', () => new THREE.MeshLambertMaterial({ map: Tex.fabric(196, 200, 196, 3) })),
   fabricGreen: () => lam('fabricGreen', () => new THREE.MeshLambertMaterial({ map: Tex.fabric(70, 90, 80, 4) })),
+  fabricBlue: () => lam('fabricBlue', () => new THREE.MeshLambertMaterial({ map: Tex.fabric(66, 78, 96, 5) })),
   black: () => lam('black', () => new THREE.MeshLambertMaterial({ color: 0x0c0d0e })),
   glass: () => lam('glass', () => new THREE.MeshBasicMaterial({ map: Tex.cryoGlass(), transparent: true, opacity: 0.85 })),
   paper: () => lam('paper', () => new THREE.MeshLambertMaterial({ map: Tex.paper() })),
@@ -32,6 +34,12 @@ export const M = {
   emissiveAmber: () => lam('emAmber', () => new THREE.MeshBasicMaterial({ color: 0xffb060 })),
   emissiveWhite: () => lam('emWhite', () => new THREE.MeshBasicMaterial({ color: 0xe8f0f0 })),
   emissiveGreen: () => lam('emGreen', () => new THREE.MeshBasicMaterial({ color: 0x40ff80 })),
+  emissiveTeal: () => lam('emTeal', () => new THREE.MeshBasicMaterial({ color: 0xa6ece4 })),
+  emissiveTealDim: () => lam('emTealDim', () => new THREE.MeshBasicMaterial({ color: 0x3f7f7a })),
+  lockerPaint: () => lam('lockerPaint', () => new THREE.MeshLambertMaterial({ color: 0x9fb4ae, map: Tex.metal(132, 9) })),
+  lockerPaintDark: () => lam('lockerPaintDark', () => new THREE.MeshLambertMaterial({ color: 0x8a9e98, map: Tex.metal(96, 10) })),
+  bone: () => lam('bone', () => new THREE.MeshLambertMaterial({ color: 0xd8d0bc, map: Tex.metal(200, 11) })),
+  brass: () => lam('brass', () => new THREE.MeshLambertMaterial({ color: 0xb89a58, map: Tex.metal(170, 12) })),
 };
 
 function mesh(geo, material, x = 0, y = 0, z = 0, cast = true) {
@@ -43,6 +51,8 @@ function mesh(geo, material, x = 0, y = 0, z = 0, cast = true) {
 }
 const B = (w, h, d, material, x, y, z, cast) => mesh(new THREE.BoxGeometry(w, h, d), material, x, y, z, cast);
 const C = (r, h, material, x, y, z, seg = 8) => mesh(new THREE.CylinderGeometry(r, r, h, seg), material, x, y, z);
+// Screens and labels are planes: a thin box would smear its texture over its edges.
+const P = (w, h, material, x, y, z) => mesh(new THREE.PlaneGeometry(w, h), material, x, y, z, false);
 
 // Screen material — MeshBasic so it glows in the dark.
 function screenMat(lines, color, seed) {
@@ -102,23 +112,39 @@ export const BUILDERS = {
     return { obj: g, colliders: [footprint(p.x, p.z + 0.1, 1.3, 0.9, p.r)] };
   },
 
+  // A conduit run along the TOP of a wall: the pipes lie side by side across
+  // the wall cap (stacked in depth, not hanging down the face), with a thin
+  // red line just proud of the face. At the 62° camera a pipe hanging on the
+  // face projects far down the wall and cuts through every sign, poster and
+  // screen mounted there; up here it reads as a bundle on the wall's top edge
+  // and leaves the face clear. p.x / p.z is the wall's face line; the room
+  // side is worked out from p.room.
   pipes(p) {
     const g = new THREE.Group();
     const len = p.len;
-    const y = p.y || 2.2;
     const along = p.axis === 'x';
-    for (let i = 0; i < 3; i++) {
-      const r = [0.08, 0.05, 0.06][i];
-      const off = 0.12 + i * 0.16;
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), i === 1 ? M.metalRed() : M.metalDark());
-      if (along) { c.rotation.z = Math.PI / 2; c.position.set(p.x + len / 2, y - i * 0.18, p.z + off); }
-      else { c.rotation.x = Math.PI / 2; c.position.set(p.x + off, y - i * 0.18, p.z + len / 2); }
+    const room = ROOMS[p.room];
+    // s = +1 when the room lies on the + side of the wall line
+    let s = 1;
+    if (room) s = along ? (p.z <= room.z0 ? 1 : -1) : (p.x <= room.x0 ? 1 : -1);
+    const TOP = 2.6; // world.js WALL_H
+    // [radius, offset from the face toward the room (negative = over the cap), height of the centre, material]
+    const runs = [
+      [0.055, -0.1, TOP + 0.055, M.metalDark()],
+      [0.04, -0.01, TOP + 0.04, M.metal()],
+      [0.022, 0.03, TOP - 0.015, M.metalRed()],
+    ];
+    for (const [r, off, y, mat] of runs) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), mat);
+      c.castShadow = false;
+      if (along) { c.rotation.z = Math.PI / 2; c.position.set(p.x + len / 2, y, p.z + s * off); }
+      else { c.rotation.x = Math.PI / 2; c.position.set(p.x + s * off, y, p.z + len / 2); }
       g.add(c);
     }
-    // brackets
-    for (let s = 1; s < len; s += 3) {
-      const b = B(0.08, 0.5, 0.08, M.metalDark(), 0, y - 0.2, 0, false);
-      if (along) b.position.set(p.x + s, y - 0.2, p.z + 0.06); else b.position.set(p.x + 0.06, y - 0.2, p.z + s);
+    // clamps over the bundle every 3 m
+    for (let t = 1; t < len; t += 3) {
+      const b = along ? B(0.06, 0.05, 0.22, M.metalDark(), 0, 0, 0, false) : B(0.22, 0.05, 0.06, M.metalDark(), 0, 0, 0, false);
+      if (along) b.position.set(p.x + t, TOP + 0.1, p.z - s * 0.06); else b.position.set(p.x - s * 0.06, TOP + 0.1, p.z + t);
       g.add(b);
     }
     return { obj: g, colliders: [] };
@@ -139,7 +165,7 @@ export const BUILDERS = {
   terminal(p) {
     const g = new THREE.Group();
     g.add(B(0.5, 0.36, 0.36, M.metalLight(), 0, 0.2, 0));
-    const scr = B(0.4, 0.28, 0.02, screenMat(p.lines || [], p.color || [110, 230, 200], 3), 0, 0.22, 0.19, false);
+    const scr = P(0.4, 0.28, screenMat(p.lines || [], p.color || [110, 230, 200], 3), 0, 0.22, 0.185);
     g.add(scr);
     g.add(B(0.5, 0.04, 0.22, M.metalDark(), 0, 0.02, 0.32));
     place(g, p);
@@ -208,9 +234,9 @@ export const BUILDERS = {
   },
 
   sign(p) {
-    const tex = Tex.sign(p.text, p.red ? [150, 28, 32] : [190, 182, 160], p.red ? [230, 220, 200] : [30, 26, 24]);
-    const m = texMat('sign' + p.text, tex);
-    const pl = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.35), m);
+    const tex = Tex.sign(p.text, p.red ? [150, 28, 32] : [190, 182, 160], p.red ? [230, 220, 200] : [30, 26, 24], p.gloss || '');
+    const m = texMat('sign' + p.text + (p.gloss || ''), tex);
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(p.w || 1.4, (p.w || 1.4) / 4), m);
     place(pl, p);
     pl.position.y = p.y || 2.3;
     return { obj: pl, colliders: [] };
@@ -273,35 +299,112 @@ export const BUILDERS = {
     return { obj: rig.root, colliders: [] };
   },
 
-  saveTerminal(p) {
+  // Tape backup deck (the save point). A floor console against the wall: a
+  // sloped deck with two reels (they spin while a backup is written), a
+  // teal-white status screen and bone keys. No red anywhere on it.
+  backupDeck(p) {
     const g = new THREE.Group();
-    g.add(B(1.2, 1.0, 0.5, M.metalDark(), 0, 0.5, 0));
-    g.add(B(1.0, 0.72, 0.1, M.metal(), 0, 1.36, -0.12));
-    const scr = B(0.84, 0.56, 0.02, lam('saveScreen', () => new THREE.MeshBasicMaterial({ map: Tex.screen(['MNEMONIC', 'RECORDER', '> READY'], [255, 60, 50], 9) })), 0, 1.36, -0.06, false);
-    g.add(scr);
-    g.add(B(1.0, 0.04, 0.3, M.metalLight(), 0, 1.02, 0.12));
-    for (let i = 0; i < 6; i++) g.add(B(0.12, 0.02, 0.08, i % 2 ? M.black() : M.metalRed(), -0.35 + i * 0.14, 1.05, 0.12, false));
-    const lamp = B(0.1, 0.1, 0.1, M.emissiveRed(), 0.5, 1.8, -0.1, false);
+    g.add(B(1.2, 0.86, 0.56, M.metalDark(), 0, 0.43, 0));
+    g.add(B(1.22, 0.04, 0.58, M.metal(), 0, 0.87, 0, false));
+    // upright back panel with the screen and meters
+    g.add(B(1.2, 0.72, 0.14, M.metal(), 0, 1.24, -0.21));
+    const screen = P(0.5, 0.25, lam('deckReady', () => new THREE.MeshBasicMaterial({ map: Tex.deckScreen('ready') })), -0.26, 1.34, -0.137);
+    g.add(screen);
+    for (let i = 0; i < 2; i++) {
+      g.add(B(0.16, 0.1, 0.02, M.black(), 0.16 + i * 0.2, 1.36, -0.13, false));
+      g.add(B(0.12, 0.012, 0.022, M.emissiveTealDim(), 0.16 + i * 0.2, 1.34, -0.13, false));
+    }
+    const lamp = B(0.05, 0.05, 0.03, M.emissiveTeal(), 0.49, 1.5, -0.13, false);
     g.add(lamp);
+    // sloped reel deck
+    const deck = new THREE.Group();
+    deck.position.set(0, 0.95, 0.02);
+    deck.rotation.x = 0.62;
+    g.add(deck);
+    deck.add(B(1.16, 0.06, 0.52, M.metalDark(), 0, 0, 0));
+    deck.add(B(1.18, 0.02, 0.04, M.metal(), 0, 0.03, 0.25, false));
+    const reelMat = [M.metalLight(), lam('reelFace', () => new THREE.MeshLambertMaterial({ map: Tex.reel(0.7), transparent: true, alphaTest: 0.5 })), M.black()];
+    const reelMat2 = [M.metalLight(), lam('reelFace2', () => new THREE.MeshLambertMaterial({ map: Tex.reel(0.25), transparent: true, alphaTest: 0.5 })), M.black()];
+    const reelGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.03, 18);
+    const reelL = new THREE.Mesh(reelGeo, reelMat); reelL.position.set(-0.29, 0.05, -0.05);
+    const reelR = new THREE.Mesh(reelGeo, reelMat2); reelR.position.set(0.29, 0.05, -0.05);
+    deck.add(reelL, reelR);
+    // tape path over the head block
+    deck.add(B(0.22, 0.05, 0.07, M.bone(), 0, 0.05, 0.19, false));
+    deck.add(B(0.62, 0.012, 0.012, lam('tape', () => new THREE.MeshLambertMaterial({ color: 0x4a3426 })), 0, 0.075, 0.13, false));
+    for (let i = 0; i < 5; i++) deck.add(B(0.09, 0.03, 0.06, i === 2 ? M.bone() : M.metalDark(), -0.4 + i * 0.2, 0.04, 0.22, false));
+    // stencil plate on the cabinet front
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.14), texMat('signBACKUPЗАПИСЬ', Tex.sign('BACKUP', [180, 176, 160], [28, 30, 30], 'ЗАПИСЬ')));
+    plate.position.set(0, 0.62, 0.285);
+    g.add(plate);
     place(g, p);
-    return { obj: g, colliders: [footprint(p.x, p.z + 0.1, 1.2, 0.6, p.r)], parts: { lamp, screen: scr } };
+    const screenReady = screen.material;
+    const screenWrite = lam('deckWrite', () => new THREE.MeshBasicMaterial({ map: Tex.deckScreen('write') }));
+    return { obj: g, colliders: [footprint(p.x, p.z, 1.2, 0.6, p.r)], parts: { reelL, reelR, screen, lamp, screenReady, screenWrite } };
   },
 
-  trunk(p) {
+  // Pneumatic locker (shared storage). A wall hatch fed by a tube from the
+  // ceiling; the gauge needle breathes. Contents travel between lockers.
+  pneumaticLocker(p) {
     const g = new THREE.Group();
-    g.add(B(1.0, 0.5, 0.6, M.metalRed(), 0, 0.25, 0));
-    g.add(B(1.04, 0.1, 0.64, M.metalDark(), 0, 0.55, 0));
-    g.add(B(0.16, 0.12, 0.03, M.metalLight(), 0, 0.42, 0.31, false));
-    g.add(B(1.04, 0.05, 0.64, M.metalDark(), 0, 0.1, 0, false));
+    g.add(B(0.9, 1.5, 0.42, M.lockerPaint(), 0, 0.75, 0));
+    g.add(B(0.94, 0.06, 0.46, M.metalDark(), 0, 1.53, 0, false));
+    g.add(B(0.94, 0.08, 0.46, M.metalDark(), 0, 0.04, 0, false));
+    // round hatch: bone rim, darker door, bar handle
+    const ring = (r, h, mat, z) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16), mat); m.rotation.x = Math.PI / 2; m.position.set(0, 0.86, z); m.castShadow = false; return m; };
+    g.add(ring(0.31, 0.04, M.bone(), 0.22));
+    const hatch = ring(0.26, 0.06, M.lockerPaintDark(), 0.235);
+    g.add(hatch);
+    g.add(B(0.3, 0.05, 0.05, M.bone(), 0, 0.86, 0.28, false));
+    g.add(B(0.06, 0.12, 0.05, M.metalDark(), -0.29, 0.86, 0.23, false));
+    // gauge with a moving needle
+    const gauge = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.03, 14), [M.brass(), lam('gaugeFace', () => new THREE.MeshLambertMaterial({ map: Tex.gauge(), transparent: true, alphaTest: 0.5 })), M.black()]);
+    gauge.rotation.x = Math.PI / 2; gauge.position.set(-0.28, 1.34, 0.22);
+    g.add(gauge);
+    const needle = new THREE.Group(); needle.position.set(-0.28, 1.34, 0.24);
+    const nm = B(0.012, 0.055, 0.008, M.black(), 0, 0.025, 0, false);
+    needle.add(nm); needle.rotation.z = 0.4;
+    g.add(needle);
+    // plate
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.105), texMat('signLOCKERХРАНЕНИЕ', Tex.sign('LOCKER', [180, 176, 160], [28, 30, 30], 'ХРАНЕНИЕ')));
+    plate.position.set(0.14, 1.34, 0.212);
+    g.add(plate);
+    const pip = B(0.04, 0.04, 0.02, M.emissiveTeal(), 0.36, 1.2, 0.215, false);
+    g.add(pip);
+    // feed tube up to the ceiling and into the wall
+    const tube = C(0.085, 1.1, M.metalLight(), 0.3, 2.08, -0.06, 10);
+    g.add(tube);
+    for (const y of [1.66, 2.3]) g.add(C(0.11, 0.05, M.metalDark(), 0.3, y, -0.06, 10));
+    const bend = C(0.085, 0.3, M.metalLight(), 0.3, 2.55, -0.2, 10); bend.rotation.x = Math.PI / 2;
+    g.add(bend);
     place(g, p);
-    return { obj: g, colliders: [footprint(p.x, p.z, 1.0, 0.6, p.r)] };
+    return { obj: g, colliders: [footprint(p.x, p.z, 0.9, 0.44, p.r)], parts: { hatch, needle, pip } };
+  },
+
+  // Sector plan terminal: a wall screen showing the sector's floor plan.
+  planTerminal(p) {
+    const g = new THREE.Group();
+    const sec = SECTORS[p.sector] || { code: p.sector, rooms: [] };
+    const rects = sec.rooms.map((k) => ({ ...ROOMS[k], here: k === p.room }));
+    g.add(B(0.96, 0.8, 0.07, M.metalDark(), 0, 1.5, 0));
+    g.add(B(1.0, 0.05, 0.16, M.metal(), 0, 1.92, 0.05, false));
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.84, 0.63), lam('plan' + p.sector + p.room, () => new THREE.MeshBasicMaterial({ map: Tex.plan(p.sector + p.room, rects, 'SECTOR ' + sec.code, 'ПЛАН') })));
+    scr.position.set(0, 1.5, 0.037);
+    g.add(scr);
+    g.add(B(0.5, 0.05, 0.12, M.metalLight(), 0, 1.06, 0.05, false));
+    for (let i = 0; i < 4; i++) g.add(B(0.07, 0.025, 0.05, M.bone(), -0.16 + i * 0.105, 1.095, 0.06, false));
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.64, 0.16), texMat('signPLAN' + sec.code, Tex.sign('SECTOR PLAN ' + sec.code, [180, 176, 160], [28, 30, 30], 'ПЛАН СЕКТОРА')));
+    plate.position.set(0, 2.08, 0.01);
+    g.add(plate);
+    place(g, p);
+    return { obj: g, colliders: [], parts: { screen: scr } };
   },
 
   bed(p) {
     const g = new THREE.Group();
     g.add(B(0.95, 0.35, 2.0, M.metalDark(), 0, 0.17, 0));
     g.add(B(0.9, 0.14, 1.95, M.fabricWhite(), 0, 0.41, 0));
-    g.add(B(0.92, 0.1, 1.1, M.fabricRed(), 0, 0.5, 0.35));
+    g.add(B(0.92, 0.1, 1.1, p.blanket === 'red' ? M.fabricRed() : M.fabricBlue(), 0, 0.5, 0.35));
     g.add(B(0.6, 0.1, 0.35, M.fabricWhite(), 0, 0.53, -0.7));
     g.add(B(0.95, 0.7, 0.06, M.metalDark(), 0, 0.35, -1.0));
     place(g, p);
@@ -343,8 +446,11 @@ export const BUILDERS = {
     return { obj: g, colliders: [footprint(p.x, p.z, 0.4, 0.4)] };
   },
 
+  // p.kind: 'warm' (quiet rooms), 'teal' (the old lozenge rug), 'felt' (a
+  // plain utility mat), 'runner' (a striped archive runner).
   rug(p) {
-    const m = lam('rug', () => new THREE.MeshLambertMaterial({ map: Tex.floorCarpet() }));
+    const kind = p.kind || 'teal';
+    const m = lam('rug-' + kind, () => new THREE.MeshLambertMaterial({ map: Tex.rug(kind) }));
     const pl = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.d), m);
     pl.rotation.x = -Math.PI / 2;
     pl.position.set(p.x, 0.008, p.z);
@@ -450,7 +556,7 @@ export const BUILDERS = {
         const x = -0.9 + i * 0.9, y = 1.1 + row * 0.55;
         g.add(B(0.8, 0.5, 0.35, M.metalDark(), x, y, -0.05));
         const lines = k === 4 ? ['CAM 07', 'OBS DECK', '1 FIGURE'] : k === 1 ? ['CAM 02', 'NO SIGNAL'] : [];
-        const scr = B(0.68, 0.4, 0.01, screenMat(lines, k === 4 ? [255, 90, 80] : [120, 255, 160], seeds[k]), x, y, 0.13, false);
+        const scr = P(0.68, 0.4, screenMat(lines, k === 4 ? [255, 90, 80] : [120, 255, 160], seeds[k]), x, y, 0.128);
         g.add(scr);
         k++;
       }
@@ -588,9 +694,9 @@ export const BUILDERS = {
     deck.rotation.x = 0.35;
     g.add(deck);
     g.add(B(3.4, 2.2, 0.3, M.metal(), 0, 1.6, -0.35));
-    const big = B(1.6, 0.9, 0.02, lam('commsScreen', () => new THREE.MeshBasicMaterial({ map: Tex.screen(['BEACON: LOOP', 'SRC: OSTROV.M', 'CYCLE 10002'], [255, 70, 60], 12) })), 0, 1.75, -0.19, false);
+    const big = P(1.6, 0.9, lam('commsScreen', () => new THREE.MeshBasicMaterial({ map: Tex.screen(['BEACON: LOOP', 'SRC: OSTROV.M', 'CYCLE 10002'], [255, 70, 60], 12) })), 0, 1.75, -0.195);
     g.add(big);
-    for (const x of [-1.3, 1.3]) g.add(B(0.6, 0.6, 0.02, screenMat([], [255, 70, 60], x > 0 ? 13 : 14), x, 1.6, -0.19, false));
+    for (const x of [-1.3, 1.3]) g.add(P(0.6, 0.6, screenMat([], [255, 70, 60], x > 0 ? 13 : 14), x, 1.6, -0.195));
     for (let i = 0; i < 10; i++) g.add(B(0.12, 0.03, 0.1, i % 3 ? M.black() : M.emissiveRed(), -1.2 + i * 0.27, 1.02, 0.3, false));
     place(g, p);
     return { obj: g, colliders: [footprint(p.x, p.z + 0.1, 3.4, 1.1, p.r)], parts: { screen: big } };
@@ -607,6 +713,9 @@ export const BUILDERS = {
     return { obj: g, colliders: [footprint(p.x, p.z, 1.3, 1.3)], parts: { glow } };
   },
 };
+
+BUILDERS.saveTerminal = BUILDERS.backupDeck;
+BUILDERS.trunk = BUILDERS.pneumaticLocker;
 
 export function buildProp(p) {
   const b = BUILDERS[p.t];

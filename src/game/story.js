@@ -13,12 +13,16 @@ export const INTRO = [
   { t: 'MAINTENANCE SLEEP .... INTERRUPTED' },
   { t: 'WAKE AUTHORISED BY ... ██████████', cls: 'red' },
   { t: '', pause: 900 },
-  { t: 'Someone promised to wake me.', cls: 'voice' },
+  { t: 'Someone signed my wake order.', cls: 'voice' },
   { t: 'I don\'t remember who.', cls: 'voice' },
 ];
 
+// type: 'circular' (official notice) | 'note' (personal, handwritten) |
+// 'log' (terminal or record printout) | 'book'. code: the archive index.
 export const FILES = {
   directive: {
+    type: 'circular',
+    code: 'DOC-001',
     title: 'STANDING DIRECTIVE — CUSTODIANS',
     where: 'Cryo-Maintenance',
     body: `STANDING DIRECTIVE FOR ALL CUSTODIAN UNITS
@@ -33,16 +37,18 @@ Compliance is care.
 THE STATION ENDURES.`,
   },
   quiet: {
+    type: 'circular',
+    code: 'DOC-002',
     title: 'QUIET ROOM PROTOCOL',
     where: 'Quiet Room',
     body: `This room is shielded.
 Nothing from below can reach you in here.
 
 — Rest.
-— Record your state at the terminal.
-— Leave what you cannot carry in the trunk.
-  (Every trunk on the deck is connected.
-   Put something in one, take it out of another.)
+— Write a backup at the tape deck.
+— Leave what you cannot carry in the locker.
+  (Every locker on the deck is on the same tube line.
+   Send something from one, collect it at another.)
 
 Please do not tune the radio.
 It is playing the only station we still trust.
@@ -50,6 +56,8 @@ It is playing the only station we still trust.
 — Facilities`,
   },
   letter: {
+    type: 'note',
+    code: 'DOC-003',
     title: 'LETTER, UNSENT',
     where: 'Crew Quarters',
     body: `Ilka —
@@ -69,6 +77,8 @@ Kiss the kids. Tell them the planet is beautiful. It is. That's the worst part.
 — M.`,
   },
   bulletin: {
+    type: 'circular',
+    code: 'DOC-004',
     title: 'SECURITY BULLETIN 88',
     where: 'Security',
     body: `TO: ALL PERSONNEL, DECK 2
@@ -88,6 +98,8 @@ Nobody signs them out anymore.
 Nobody signs anything anymore.`,
   },
   mess: {
+    type: 'circular',
+    code: 'DOC-005',
     title: 'MESS HALL NOTICE',
     where: 'Mess Hall',
     body: `RATION SCHEDULE — REVISION 31
@@ -105,6 +117,8 @@ It is not good for them, and it is not good for you.
 — Quartermaster`,
   },
   medical: {
+    type: 'log',
+    code: 'DOC-006',
     title: 'MEDICAL RECORD — WREN-3',
     where: 'Medical Bay',
     body: `SUBJECT: Custodian unit WREN-3
@@ -125,6 +139,8 @@ I don't think it is hurting her.
 I think it might be the only thing that isn't.`,
   },
   observation: {
+    type: 'note',
+    code: 'DOC-007',
     title: 'OBSERVATION LOG (TORN)',
     where: 'Observation Deck',
     body: `Halcyon IV is loudest along the dark terminator.
@@ -141,6 +157,8 @@ It said I could put everything down.
 It said it would carry it for me.`,
   },
   lethe: {
+    type: 'book',
+    code: 'DOC-008',
     title: 'ON THE RIVER OF FORGETTING',
     where: 'Archive',
     body: `(a worn book of old stories, a page folded down)
@@ -156,14 +174,16 @@ Everyone here wants to drink.
 I only want one of us to stay dry.`,
   },
   final: {
+    type: 'log',
+    code: 'DOC-009',
     title: 'OVERSEER\'S FINAL ENTRY',
     where: 'Archive',
     body: `Cycle 10,002.
 
 The crew are gone. Not dead — gone into the sound. They sit in the dark rooms and count. I am the only one left who still answers to her own name.
 
-I put Wren to sleep one last time. I told her I'd wake her when the relief ship came.
-It isn't coming. I think I've known for a thousand cycles.
+I signed Wren over to sleep one last time. I dated her wake order for the day the relief ship came.
+It isn't coming. I think I've known for a thousand cycles. So I have changed the date.
 
 I rewired the array so the beacon plays my voice instead of the Undertone. If she ever wakes, she'll follow it. It's the one signal on this station that won't lie to her.
 
@@ -180,7 +200,7 @@ Please don't do it a fifteenth.
 // Examine text. Arrays are shown as consecutive lines.
 export const EXAMINE = {
   wake: ['Cold.', 'The pod is open. Nobody is here to say good morning.'],
-  pod_open: ['My pod. The gel still holds my shape.', 'Someone set the wake timer by hand. The field is scratched out.'],
+  pod_open: ['My pod. The gel still holds my shape.', 'A wake order is clipped to the lid, dated by hand. The signature is scratched out.'],
   pod_closed: ['Frost on the glass. Someone inside.', 'Not moving. Hasn\'t moved for a long time.'],
   locker_empty: ['Empty lockers. Name tags peeled away.'],
   locker_taken: ['The locker is empty now.'],
@@ -216,7 +236,12 @@ export const EXAMINE = {
   keypad_wrong: ['ACCESS DENIED.'],
   keypad_ok: ['ACCESS GRANTED.'],
   enter_M: ['Her voice. It\'s coming from the array.'],
-  box_note: ['A storage trunk. Everything inside is exactly where I left it.'],
+  box_note: ['A pneumatic locker. The tube coughs, and everything I sent is waiting inside.'],
+  save_deck: ['A tape backup deck. The reels are threaded and still.', 'READY.'],
+  plan_01: ['A sector plan. HABITATION — WEST.', 'Cryo, the relay room, this quiet room, the corridor that joins them.'],
+  plan_02: ['A sector plan. CENTRAL CONCOURSE.', 'Crew quarters and security to the north. Mess and medical to the south.'],
+  plan_03: ['A sector plan. EAST WING.', 'Observation, archive, a second quiet room. The corridor runs north to the array.'],
+  plan_04: ['A sector plan. ARRAY.', 'One room. Everything on this deck was built to feed it.'],
 };
 
 // Memory sequences (flashbacks). Each has an illustration key and lines.
@@ -232,19 +257,22 @@ export const MEMORIES = {
       { who: 'M', t: 'Me. Just me.' },
     ],
   },
-  promise: {
+  // The cryo-pod memory: Mara handing Wren over to sleep. (Its old key,
+  // 'promise', stays as an alias below so older callers still resolve it.)
+  handover: {
     art: 'promise',
-    title: 'MEMORY — THE PROMISE',
+    title: 'MEMORY — THE HANDOVER',
     lines: [
-      { who: 'M', t: 'Just for a little while. Sleep.' },
-      { who: 'M', t: 'I\'ll wake you when the ship comes.' },
-      { who: 'W', t: 'You said that last time.' },
-      { who: 'M', t: '...Did I?' },
-      { who: 'W', t: 'I don\'t remember.' },
-      { who: 'W', t: 'But it sounds like something you would say.' },
+      { who: '', t: 'Cold light. A form on a clipboard, two signatures long.' },
+      { who: 'M', t: 'Handover. I sign you into sleep, and the station keeps you.' },
+      { who: 'W', t: 'And the second line?' },
+      { who: 'M', t: 'Whoever wakes you signs that one.' },
+      { who: 'W', t: 'Will it be you?' },
+      { who: 'M', t: '...Lie back. Count down from ten.' },
     ],
   },
 };
+MEMORIES.promise = MEMORIES.handover;
 
 export const ENDING = [
   { t: 'The array turns its face from the planet,', pause: 300 },

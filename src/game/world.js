@@ -63,7 +63,7 @@ class QuadBuilder {
 }
 
 const floorTex = {
-  plate: () => Tex.floorPlate(), grate: () => Tex.floorGrate(), carpet: () => Tex.floorCarpet(),
+  plate: () => Tex.floorPlate(), grate: () => Tex.floorGrate(), carpet: () => Tex.floorCarpet(), carpetSlate: () => Tex.floorCarpetSlate(),
   tile: () => Tex.floorTileWhite(), concrete: () => Tex.floorConcrete(),
 };
 const wallTex = {
@@ -129,6 +129,12 @@ export class World {
     this.propParts = {};
     this.hash = new Map();
     this.powered = false;
+    this.animated = [];     // props with moving parts (reels, gauge needles)
+    this.time = 0;
+    this.reelSpinUntil = -1;
+    // per-room fill light (ROOMS[k].amb), follows the current room
+    this.fill = new THREE.AmbientLight(0x000000, 0);
+    scene.add(this.fill);
   }
 
   idx(x, z) { return z * GRID_W + x; }
@@ -315,27 +321,60 @@ export class World {
   }
 
   setDoorLamp(door) {
-    const c = door.open ? 0x40ff80 : door.locked ? 0xff2020 : 0xffb040;
+    const c = door.open ? 0x70e8d8 : door.locked ? 0xff2020 : 0xffb040;
     door.lamp.material.color.setHex(c);
   }
 
   buildLights() {
+    const housing = psx(new THREE.MeshLambertMaterial({ map: Tex.metal(46, 6) }));
     for (const L of LIGHTS) {
       const light = new THREE.PointLight(L.color, 0, L.d * 1.6, 1);
       light.position.set(L.x, L.y ?? 2.3, L.z);
       const room = this.rooms[L.room];
       room.group.add(light);
-      const entry = { light, base: L.i * LIGHT_SCALE, flicker: L.flicker || 0, pulse: L.pulse || 0, power: L.power || 'always', room: L.room, seed: Math.random() * 100 };
+      const entry = {
+        light, base: L.i * LIGHT_SCALE, flicker: L.flicker || 0, pulse: L.pulse || 0, pulseDepth: L.pulseDepth ?? 0.5,
+        power: L.power || 'always', room: L.room, seed: Math.random() * 100,
+      };
       this.lights.push(entry);
       room.lights.push(entry);
-      // a visible fixture: a small glowing bar at the light's position (ceiling lights only)
+      // Ceiling lights get a lamp housing on the nearest north or side wall
+      // (there is no ceiling in view to hang a fixture from).
       if ((L.y ?? 2.3) >= 2) {
-        const fx = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.14), new THREE.MeshBasicMaterial({ color: L.color }));
-        fx.position.copy(light.position); fx.position.y = 2.45;
-        room.group.add(fx);
-        entry.fixture = fx;
+        const mount = this.wallMount(room, L.x, L.z);
+        if (mount) {
+          const g = new THREE.Group();
+          g.add(new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.1, 0.12), housing));
+          const strip = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.04, 0.03), new THREE.MeshBasicMaterial({ color: L.color }));
+          strip.position.set(0, -0.045, 0.05);
+          g.add(strip);
+          g.position.set(mount.x, 2.32, mount.z);
+          g.rotation.y = mount.rot;
+          room.group.add(g);
+          entry.fixture = strip;
+        }
       }
     }
+  }
+
+  // Where to put a lamp housing for a ceiling light at (x, z): the nearest
+  // north or side wall within reach, or null (south walls are cut away).
+  wallMount(room, x, z) {
+    const opts = [
+      { d: room.window ? Infinity : z - room.z0, x, z: room.z0 + 0.07, rot: 0 },
+      { d: x - room.x0, x: room.x0 + 0.07, z, rot: Math.PI / 2 },
+      { d: room.x1 + 1 - x, x: room.x1 + 1 - 0.07, z, rot: -Math.PI / 2 },
+    ];
+    const narrow = room.x1 - room.x0 < 3;
+    let best = null;
+    for (const o of opts) if (!best || o.d < best.d) best = o;
+    if (!best || (best.d > 1.4 && !narrow)) return null;
+    // keep housings off door tiles
+    const tx = Math.floor(best.x + (best.rot === Math.PI / 2 ? -0.5 : best.rot === -Math.PI / 2 ? 0.5 : 0));
+    const tz = Math.floor(best.z + (best.rot === 0 ? -0.5 : 0));
+    const t = this.tile(tx, tz);
+    if (t && typeof t === 'object') return null;
+    return best;
   }
 
   buildProps() {
@@ -343,14 +382,26 @@ export class World {
       const { obj, colliders, parts } = buildProp(p);
       this.rooms[p.room].group.add(obj);
       for (const c of colliders) this.addCollider(c);
-      if (parts) this.propParts[p.room + ':' + p.t + ':' + p.x + ':' + p.z] = parts;
+      if (parts) {
+        this.propParts[p.room + ':' + p.t + ':' + p.x + ':' + p.z] = parts;
+        if (parts.reelL || parts.needle) this.animated.push({ room: p.room, t: p.t, parts, seed: p.x * 1.7 + p.z });
+      }
       obj.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; } });
     }
   }
 
   parts(room, t) {
     const key = Object.keys(this.propParts).find((k) => k.startsWith(room + ':' + t + ':'));
+    if (!key && t === 'saveTerminal') return this.parts(room, 'backupDeck');
+    if (!key && t === 'trunk') return this.parts(room, 'pneumaticLocker');
     return key ? this.propParts[key] : null;
+  }
+
+  // Backup decks: spin the reels (and show WRITING) for `seconds`.
+  // Call with 0 to stop. Reels in every quiet room follow the same clock,
+  // so the caller doesn't need to know which deck is in view.
+  spinReels(seconds = 1.2) {
+    this.reelSpinUntil = seconds > 0 ? this.time + seconds : -1;
   }
 
   buildDust() {
@@ -361,13 +412,13 @@ export class World {
       vertexShader: `uniform float uTime; attribute float seed; varying float vA;
         void main(){ vec3 p = position;
           p.x += sin(uTime*0.13 + seed*6.28)*0.4; p.y += sin(uTime*0.07 + seed*12.0)*0.3; p.z += cos(uTime*0.11 + seed*3.1)*0.4;
-          vA = 0.25 + 0.35*sin(uTime*0.5 + seed*20.0);
+          vA = 0.10 + 0.22*sin(uTime*0.5 + seed*20.0);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0); gl_PointSize = 1.0; }`,
       fragmentShader: 'varying float vA; void main(){ gl_FragColor = vec4(vec3(0.85,0.85,0.8), max(0.0, vA)); }',
     });
     this.dustMat = mat;
     for (const room of Object.values(this.rooms)) {
-      const n = Math.floor((room.x1 - room.x0 + 1) * (room.z1 - room.z0 + 1) * 0.8);
+      const n = Math.floor((room.x1 - room.x0 + 1) * (room.z1 - room.z0 + 1) * 0.45);
       const pos = new Float32Array(n * 3), seed = new Float32Array(n);
       for (let i = 0; i < n; i++) {
         pos[i * 3] = room.x0 + Math.random() * (room.x1 - room.x0 + 1);
@@ -488,24 +539,54 @@ export class World {
     }
     this.visible = visible;
     cutUniforms.uCutZ.value = playerZ + 0.6;
+    if (current !== this.current) {
+      this.current = current;
+      const amb = ROOMS[current] && ROOMS[current].amb;
+      if (amb) { this.fill.color.setHex(amb[0]); this.fill.intensity = amb[1]; } else this.fill.intensity = 0;
+    }
   }
 
   updateLights(time) {
     for (const e of this.lights) {
-      const on = this.visible && this.visible.has(e.room)
-        && (e.power === 'always' || (e.power === 'main') === this.powered);
-      if (!on) { e.light.intensity = 0; if (e.fixture) e.fixture.visible = e.power === 'always' || ((e.power === 'main') === this.powered); continue; }
+      const powerOk = e.power === 'always' || (e.power === 'main') === this.powered;
+      // lights for the other power state leave the scene's light list entirely
+      e.light.visible = powerOk;
+      const on = powerOk && this.visible && this.visible.has(e.room);
+      if (!on) { e.light.intensity = 0; if (e.fixture) e.fixture.visible = powerOk; continue; }
       let k = 1;
       if (e.flicker) {
         const n = Math.sin(time * 37 + e.seed) * Math.sin(time * 23.3 + e.seed * 2) * Math.sin(time * 3.1 + e.seed);
         if (n > 1 - e.flicker * 1.4) k = 0.08;
         else if (Math.sin(time * 0.9 + e.seed) > 0.97) k = 0.5;
       }
-      if (e.pulse) k *= 0.55 + 0.45 * Math.sin(time * Math.PI * e.pulse * 2 + e.seed);
+      if (e.pulse) k *= 1 - e.pulseDepth * (0.5 - 0.5 * Math.sin(time * Math.PI * e.pulse * 2 + e.seed));
       e.light.intensity = e.base * k;
       if (e.fixture) { e.fixture.visible = true; e.fixture.material.color.copy(e.light.color).multiplyScalar(0.3 + 0.7 * k); }
     }
     if (this.dustMat) this.dustMat.uniforms.uTime.value = time;
+    this.animateProps(time);
+  }
+
+  animateProps(time) {
+    const dt = Math.min(0.1, Math.max(0, time - this.time));
+    this.time = time;
+    const spinning = time < this.reelSpinUntil;
+    for (const a of this.animated) {
+      if (this.visible && !this.visible.has(a.room)) continue;
+      const p = a.parts;
+      if (p.reelL) {
+        // supply reel turns slower than the take-up reel; idle decks creep
+        const w = spinning ? 9 : 0;
+        p.reelL.rotation.y += dt * w * 0.8;
+        p.reelR.rotation.y += dt * w * 1.25;
+        if (p.screen && p.screenWrite) p.screen.material = spinning ? p.screenWrite : p.screenReady;
+        if (p.lamp) p.lamp.visible = spinning ? Math.sin(time * 18) > 0 : Math.sin(time * 2.2 + a.seed) > -0.6;
+      }
+      if (p.needle) {
+        p.needle.rotation.z = 0.35 + Math.sin(time * 0.7 + a.seed) * 0.05 + Math.sin(time * 5.3 + a.seed) * 0.015;
+        if (p.pip) p.pip.visible = Math.sin(time * 1.3 + a.seed) > -0.8;
+      }
+    }
   }
 
   updateDoors(dt) {
