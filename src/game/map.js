@@ -11,7 +11,7 @@ export const ROOMS = {
   B: { name: 'CORRIDOR W-2', x0: 14, z0: 18, x1: 15, z1: 45, floor: 'grate', wall: 'panel', sector: '01' },
   C: { name: 'QUIET ROOM', x0: 7, z0: 20, x1: 12, z1: 25, floor: 'carpet', wall: 'wood', safe: true, sector: '01', amb: [0x6a5438, 1.2] },
   J: { name: 'POWER RELAY', x0: 4, z0: 28, x1: 12, z1: 33, floor: 'grate', wall: 'concrete', sector: '01' },
-  G: { name: 'CENTRAL CONCOURSE', x0: 17, z0: 30, x1: 44, z1: 31, floor: 'plate', wall: 'panel', sector: '02' },
+  G: { name: 'CENTRAL CONCOURSE', x0: 17, z0: 30, x1: 44, z1: 31, floor: 'plate', wall: 'panel', sector: '02', amb: [0x3a4650, 0.8] },
   D: { name: 'CREW QUARTERS', x0: 18, z0: 22, x1: 26, z1: 28, floor: 'plate', wall: 'panel', sector: '02' },
   H: { name: 'SECURITY', x0: 30, z0: 22, x1: 36, z1: 28, floor: 'concrete', wall: 'concrete', sector: '02' },
   E: { name: 'MESS HALL', x0: 18, z0: 33, x1: 28, z1: 41, floor: 'tile', wall: 'panel', sector: '02' },
@@ -76,16 +76,19 @@ export const LIGHTS = [
   { room: 'J', x: 8.5, z: 29.0, y: 1.5, color: 0xffb060, i: 0.8, d: 3.2, power: 'emergency', flicker: 0.05 },
   { room: 'J', x: 6, z: 30.5, color: 0xcfe6ff, i: 2.4, d: 8, power: 'main' },
   { room: 'J', x: 11, z: 32, color: 0xcfe6ff, i: 1.8, d: 7, power: 'main', flicker: 0.05 },
-  // Concourse — red emergency pools until the power comes back; a vending glow
-  { room: 'G', x: 20, z: 30.9, color: 0xff2a20, i: 3.3, d: 8, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
-  { room: 'G', x: 27.5, z: 30.9, color: 0xff2a20, i: 3.1, d: 8, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
-  { room: 'G', x: 35, z: 30.9, color: 0xff2a20, i: 3.1, d: 8, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
-  { room: 'G', x: 42.5, z: 30.9, color: 0xff2a20, i: 2.6, d: 7, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
+  // Concourse — before power: separate red emergency pools with neutral gaps
+  // (the room's cool grey fill, ROOMS.G.amb) so the laser, blood and door
+  // lamps still read between them; a vending glow. After power: four bright
+  // white lights, clearly a different room.
+  { room: 'G', x: 20, z: 30.9, color: 0xff2a20, i: 2.4, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
+  { room: 'G', x: 27.5, z: 30.9, color: 0xff2a20, i: 2.4, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
+  { room: 'G', x: 35, z: 30.9, color: 0xff2a20, i: 2.4, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
+  { room: 'G', x: 42.5, z: 30.9, color: 0xff2a20, i: 2.2, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
   { room: 'G', x: 18.6, z: 31.1, y: 1.2, color: 0x8fc4cc, i: 0.8, d: 3.5, flicker: 0.1 },
-  { room: 'G', x: 20.5, z: 31, color: 0xd8e4e4, i: 2.0, d: 7.5, power: 'main', flicker: 0.02 },
-  { room: 'G', x: 27, z: 31, color: 0xd8e4e4, i: 2.0, d: 7.5, power: 'main' },
-  { room: 'G', x: 33.5, z: 31, color: 0xd8e4e4, i: 2.0, d: 7.5, power: 'main', flicker: 0.2 },
-  { room: 'G', x: 40, z: 31, color: 0xd8e4e4, i: 2.0, d: 7.5, power: 'main' },
+  { room: 'G', x: 20.5, z: 31, color: 0xe4eeee, i: 2.9, d: 8, power: 'main', flicker: 0.02 },
+  { room: 'G', x: 27, z: 31, color: 0xe4eeee, i: 2.9, d: 8, power: 'main' },
+  { room: 'G', x: 33.5, z: 31, color: 0xe4eeee, i: 2.9, d: 8, power: 'main', flicker: 0.2 },
+  { room: 'G', x: 40, z: 31, color: 0xe4eeee, i: 2.9, d: 8, power: 'main' },
   // Crew quarters
   { room: 'D', x: 22, z: 25.5, color: 0xe8c890, i: 2.0, d: 8, flicker: 0.04 },
   { room: 'D', x: 19.5, z: 23.5, y: 1.4, color: 0xffb070, i: 0.8, d: 3 },
@@ -119,19 +122,21 @@ export const LIGHTS = [
   { room: 'N', x: 51.5, z: 37.0, y: 1.3, color: 0x9fe8e0, i: 0.5, d: 2.4 },
   // Comms
   { room: 'M', x: 47, z: 2.2, y: 1.6, color: 0xff2020, i: 2.8, d: 8, pulse: 0.25 },
-  { room: 'M', x: 43, z: 5, color: 0x90a0b0, i: 1.2, d: 7, flicker: 0.2 },
-  { room: 'M', x: 51, z: 5, color: 0x90a0b0, i: 1.2, d: 7 },
+  { room: 'M', x: 43, z: 5, color: 0x90a0b0, i: 1.45, d: 7, flicker: 0.2 },
+  { room: 'M', x: 51, z: 5, color: 0x90a0b0, i: 1.45, d: 7 },
 ];
 
 // Props: t = type. Positions are world units (tile corners are integers).
 // r = rotation in quarter turns (0 = facing south/toward camera).
+// Pipes run along the top of the wall whose face line is x/z (props.js), so
+// the wall face stays clear for signs, posters and screens.
 export const PROPS = [
   // ---------- A: Cryo ----------
   { room: 'A', t: 'cryoPod', x: 4.6, z: 36.7, r: 0 },
   { room: 'A', t: 'cryoPod', x: 6.6, z: 36.7, r: 0 },
   { room: 'A', t: 'cryoPod', x: 8.6, z: 36.7, r: 0 },
   { room: 'A', t: 'cryoPod', x: 10.6, z: 36.7, r: 0, open: true },
-  { room: 'A', t: 'pipes', x: 3, z: 36, len: 10, axis: 'x', y: 2.2 },
+  { room: 'A', t: 'pipes', x: 3, z: 36, len: 10, axis: 'x' },
   { room: 'A', t: 'desk', x: 4.6, z: 42.8, r: 0 },
   { room: 'A', t: 'terminal', x: 4.6, z: 42.6, y: 0.78, r: 2, lines: ['CRYO CTL', 'POD 4 OPEN', '>_'], color: [110, 230, 200] },
   { room: 'A', t: 'chair', x: 5.4, z: 42.2, r: 1 },
@@ -151,7 +156,7 @@ export const PROPS = [
   { room: 'B', t: 'debris', x: 14.9, z: 18.9 },
   { room: 'B', t: 'crate', x: 14.5, z: 19.8, s: 0.9, rot: 0.4 },
   { room: 'B', t: 'crate', x: 15.4, z: 20.4, s: 0.7, rot: -0.3 },
-  { room: 'B', t: 'pipes', x: 14, z: 18, len: 28, axis: 'z', y: 2.1 },
+  { room: 'B', t: 'pipes', x: 14, z: 18, len: 28, axis: 'z' },
   { room: 'B', t: 'poster', x: 15.98, z: 26.5, r: 1, kind: 0 },
   { room: 'B', t: 'poster', x: 15.98, z: 36.5, r: 1, kind: 3 },
   { room: 'B', t: 'body', x: 14.8, z: 44.4, rot: 2.4 },
@@ -168,14 +173,14 @@ export const PROPS = [
   { room: 'C', t: 'sideTable', x: 12.3, z: 21, r: 0 },
   { room: 'C', t: 'radio', x: 12.3, z: 21, y: 0.62 },
   { room: 'C', t: 'plant', x: 12.4, z: 25.4 },
-  { room: 'C', t: 'rug', x: 10, z: 23.5, w: 3, d: 2 },
+  { room: 'C', t: 'rug', x: 10, z: 23.5, w: 3, d: 2, kind: 'warm' },
   { room: 'C', t: 'poster', x: 7.02, z: 22.2, r: 3, kind: 2 },
 
   // ---------- J: Power relay ----------
   { room: 'J', t: 'transformer', x: 4.8, z: 29.5 },
   { room: 'J', t: 'transformer', x: 4.8, z: 31.5 },
   { room: 'J', t: 'relayPanel', x: 8.5, z: 28.25, r: 0 },
-  { room: 'J', t: 'pipes', x: 4, z: 28, len: 9, axis: 'x', y: 2.3 },
+  { room: 'J', t: 'pipes', x: 4, z: 28, len: 9, axis: 'x' },
   { room: 'J', t: 'cable', x: 5.5, z: 30, x2: 8.3, z2: 28.8 },
   { room: 'J', t: 'cable', x: 5.5, z: 32, x2: 8.8, z2: 28.8 },
   { room: 'J', t: 'hazardFloor', x: 6.5, z: 28.6, w: 4, d: 0.25 },
@@ -195,7 +200,7 @@ export const PROPS = [
   { room: 'G', t: 'decal', x: 38.5, z: 31.5, kind: 'blood', s: 1.6 },
   { room: 'G', t: 'decal', x: 30, z: 31.2, kind: 'oil', s: 1.2 },
   { room: 'G', t: 'hazardFloor', x: 44, z: 30, w: 0.3, d: 2 },
-  { room: 'G', t: 'pipes', x: 17, z: 30, len: 28, axis: 'x', y: 2.35 },
+  { room: 'G', t: 'pipes', x: 17, z: 30, len: 28, axis: 'x' },
 
   // ---------- D: Crew quarters ----------
   { room: 'D', t: 'bunk', x: 19.6, z: 22.9, r: 0 },
@@ -208,7 +213,7 @@ export const PROPS = [
   { room: 'D', t: 'chair', x: 20.4, z: 26.5, r: 1 },
   { room: 'D', t: 'chair', x: 22.6, z: 26.8, r: 3, fallen: true },
   { room: 'D', t: 'lamp', x: 19.2, z: 24.2, y: 0.95 },
-  { room: 'D', t: 'rug', x: 21.5, z: 26.5, w: 3.2, d: 2.2 },
+  { room: 'D', t: 'rug', x: 21.5, z: 26.5, w: 3.2, d: 2.2, kind: 'felt' },
   { room: 'D', t: 'poster', x: 18.02, z: 26, r: 3, kind: 4 },
   { room: 'D', t: 'sign', x: 22.4, z: 22.02, y: 2.35, text: 'CREW', gloss: 'ЭКИПАЖ', r: 0, w: 1.1 },
 
@@ -252,7 +257,7 @@ export const PROPS = [
   { room: 'F', t: 'decal', x: 35, z: 37.5, kind: 'blood', s: 2 },
 
   // ---------- K: East corridor ----------
-  { room: 'K', t: 'pipes', x: 48, z: 8, len: 37, axis: 'z', y: 2.1 },
+  { room: 'K', t: 'pipes', x: 48, z: 8, len: 37, axis: 'z' },
   { room: 'K', t: 'poster', x: 46.02, z: 14, r: 3, kind: 2 },
   { room: 'K', t: 'poster', x: 46.02, z: 33, r: 3, kind: 0 },
   { room: 'K', t: 'poster', x: 47.98, z: 24, r: 1, kind: 4 },
@@ -280,7 +285,7 @@ export const PROPS = [
   { room: 'I', t: 'chair', x: 53.5, z: 32.2, r: 2 },
   { room: 'I', t: 'bookPile', x: 50, z: 32.8 },
   { room: 'I', t: 'bookPile', x: 56.3, z: 33.2 },
-  { room: 'I', t: 'rug', x: 53.5, z: 31.5, w: 3, d: 2.2 },
+  { room: 'I', t: 'rug', x: 53.5, z: 31.5, w: 3.4, d: 1.4, kind: 'runner' },
   { room: 'I', t: 'sign', x: 52.5, z: 25.02, y: 2.35, text: 'ARCHIVE', gloss: 'АРХИВ', r: 0, w: 1.1 },
 
   // ---------- N: Quiet room 2 ----------
@@ -290,7 +295,7 @@ export const PROPS = [
   { room: 'N', t: 'sign', x: 51.5, z: 36.02, y: 2.35, text: 'QUIET ROOM', gloss: 'КОМНАТА ОТДЫХА', r: 0 },
   { room: 'N', t: 'bed', x: 54.4, z: 39.3, r: 3 },
   { room: 'N', t: 'plant', x: 49.4, z: 40.5 },
-  { room: 'N', t: 'rug', x: 51.5, z: 38.6, w: 2.4, d: 1.8 },
+  { room: 'N', t: 'rug', x: 51.5, z: 38.6, w: 2.4, d: 1.8, kind: 'warm' },
 
   // ---------- M: Comms ----------
   { room: 'M', t: 'commsConsole', x: 47, z: 1.6, r: 0 },

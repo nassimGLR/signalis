@@ -112,23 +112,39 @@ export const BUILDERS = {
     return { obj: g, colliders: [footprint(p.x, p.z + 0.1, 1.3, 0.9, p.r)] };
   },
 
+  // A conduit run along the TOP of a wall: the pipes lie side by side across
+  // the wall cap (stacked in depth, not hanging down the face), with a thin
+  // red line just proud of the face. At the 62° camera a pipe hanging on the
+  // face projects far down the wall and cuts through every sign, poster and
+  // screen mounted there; up here it reads as a bundle on the wall's top edge
+  // and leaves the face clear. p.x / p.z is the wall's face line; the room
+  // side is worked out from p.room.
   pipes(p) {
     const g = new THREE.Group();
     const len = p.len;
-    const y = p.y || 2.2;
     const along = p.axis === 'x';
-    for (let i = 0; i < 3; i++) {
-      const r = [0.08, 0.05, 0.06][i];
-      const off = 0.12 + i * 0.16;
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), i === 1 ? M.metalRed() : M.metalDark());
-      if (along) { c.rotation.z = Math.PI / 2; c.position.set(p.x + len / 2, y - i * 0.18, p.z + off); }
-      else { c.rotation.x = Math.PI / 2; c.position.set(p.x + off, y - i * 0.18, p.z + len / 2); }
+    const room = ROOMS[p.room];
+    // s = +1 when the room lies on the + side of the wall line
+    let s = 1;
+    if (room) s = along ? (p.z <= room.z0 ? 1 : -1) : (p.x <= room.x0 ? 1 : -1);
+    const TOP = 2.6; // world.js WALL_H
+    // [radius, offset from the face toward the room (negative = over the cap), height of the centre, material]
+    const runs = [
+      [0.055, -0.1, TOP + 0.055, M.metalDark()],
+      [0.04, -0.01, TOP + 0.04, M.metal()],
+      [0.022, 0.03, TOP - 0.015, M.metalRed()],
+    ];
+    for (const [r, off, y, mat] of runs) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), mat);
+      c.castShadow = false;
+      if (along) { c.rotation.z = Math.PI / 2; c.position.set(p.x + len / 2, y, p.z + s * off); }
+      else { c.rotation.x = Math.PI / 2; c.position.set(p.x + s * off, y, p.z + len / 2); }
       g.add(c);
     }
-    // brackets
-    for (let s = 1; s < len; s += 3) {
-      const b = B(0.08, 0.5, 0.08, M.metalDark(), 0, y - 0.2, 0, false);
-      if (along) b.position.set(p.x + s, y - 0.2, p.z + 0.06); else b.position.set(p.x + 0.06, y - 0.2, p.z + s);
+    // clamps over the bundle every 3 m
+    for (let t = 1; t < len; t += 3) {
+      const b = along ? B(0.06, 0.05, 0.22, M.metalDark(), 0, 0, 0, false) : B(0.22, 0.05, 0.06, M.metalDark(), 0, 0, 0, false);
+      if (along) b.position.set(p.x + t, TOP + 0.1, p.z - s * 0.06); else b.position.set(p.x - s * 0.06, TOP + 0.1, p.z + t);
       g.add(b);
     }
     return { obj: g, colliders: [] };
@@ -430,8 +446,11 @@ export const BUILDERS = {
     return { obj: g, colliders: [footprint(p.x, p.z, 0.4, 0.4)] };
   },
 
+  // p.kind: 'warm' (quiet rooms), 'teal' (the old lozenge rug), 'felt' (a
+  // plain utility mat), 'runner' (a striped archive runner).
   rug(p) {
-    const m = lam('rug2', () => new THREE.MeshLambertMaterial({ map: Tex.rug() }));
+    const kind = p.kind || 'teal';
+    const m = lam('rug-' + kind, () => new THREE.MeshLambertMaterial({ map: Tex.rug(kind) }));
     const pl = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.d), m);
     pl.rotation.x = -Math.PI / 2;
     pl.position.set(p.x, 0.008, p.z);

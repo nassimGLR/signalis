@@ -123,7 +123,7 @@ const G5 = {
   Б: ['###', '#..', '##.', '#.#', '##.'], Г: ['###', '#..', '#..', '#..', '#..'],
   Д: ['.##.', '.#.#', '.#.#', '####', '#..#'], Ж: ['#.#.#', '#.#.#', '.###.', '#.#.#', '#.#.#'],
   З: ['##.', '..#', '.#.', '..#', '##.'], И: ['#..#', '#.##', '##.#', '#..#', '#..#'],
-  Й: ['#.##', '#..#', '#.##', '##.#', '#..#'], Л: ['.###', '.#.#', '.#.#', '.#.#', '##.#'],
+  Л: ['.###', '.#.#', '.#.#', '.#.#', '##.#'],
   П: ['###', '#.#', '#.#', '#.#', '#.#'], У: ['#.#', '#.#', '.##', '..#', '##.'],
   Ф: ['.###.', '#.#.#', '#.#.#', '.###.', '..#..'], Ц: ['#.#.', '#.#.', '#.#.', '#.#.', '####'],
   Ч: ['#.#', '#.#', '.##', '..#', '..#'], Ш: ['#.#.#', '#.#.#', '#.#.#', '#.#.#', '#####'],
@@ -132,9 +132,13 @@ const G5 = {
   Э: ['##.', '..#', '.##', '..#', '##.'], Ю: ['#.##.', '#.#.#', '###.#', '#.#.#', '#.##.'],
   Я: ['.##', '#.#', '.##', '#.#', '#.#'],
 };
-const SAME = { А: 'A', В: 'B', Е: 'E', Ё: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', Х: 'X' };
+const SAME = { А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', Х: 'X' };
+// Letters with a mark above: the base glyph plus one row drawn two pixels over
+// the cap height (the 7px line pitch leaves exactly that row free).
+const ACCENT = { Й: ['И', '.##.'], Ё: ['E', '#.#'] };
 function glyph(ch) {
   const c = ch.toUpperCase();
+  if (ACCENT[c]) return G5[ACCENT[c][0]];
   return G5[c] || G5[SAME[c]] || G5['?'];
 }
 
@@ -156,6 +160,8 @@ export function pixelText(g, text, x, y, color, { scale = 1, align = 'left', spa
       const row = rows[r];
       for (let i = 0; i < row.length; i++) if (row[i] === '#') g.fillRect(cx + i * scale, y + r * scale, scale, scale);
     }
+    const acc = ACCENT[ch.toUpperCase()];
+    if (acc) for (let i = 0; i < acc[1].length; i++) if (acc[1][i] === '#') g.fillRect(cx + i * scale, y - 2 * scale, scale, scale);
     cx += (rows[0].length + spacing) * scale;
   }
   return w;
@@ -583,16 +589,55 @@ export const Tex = {
     return toTexture(c, false);
   }),
 
-  // Wool rug: deep teal field, bone border, a simple lozenge. Distinct from the floor.
-  rug: () => memo('rug', () => {
+  // Rugs, one look per kind so rooms keep their own identity:
+  //   'warm'   quiet rooms: ochre wool, bone edge, woven umber bands
+  //   'teal'   the original lozenge rug (unused on the map; kept for callers)
+  //   'felt'   crew quarters: a plain blue-grey utility mat, stitched edge
+  //   'runner' archive: dark olive runner with bone stripes at both ends
+  rug: (kind = 'teal') => memo('rug-' + kind, () => {
     const [c, g] = canvas(32, 32);
-    g.fillStyle = rgb(40, 62, 64); g.fillRect(0, 0, 32, 32);
-    const R = rng(71);
-    for (let i = 0; i < 120; i++) { g.fillStyle = R() > 0.5 ? rgb(48, 72, 74) : rgb(34, 52, 54); g.fillRect((R() * 32) | 0, (R() * 32) | 0, 2, 1); }
-    g.fillStyle = rgb(170, 160, 136); g.fillRect(1, 1, 30, 1); g.fillRect(1, 30, 30, 1); g.fillRect(1, 1, 1, 30); g.fillRect(30, 1, 1, 30);
-    g.fillStyle = rgb(120, 60, 44); g.fillRect(3, 3, 26, 1); g.fillRect(3, 28, 26, 1); g.fillRect(3, 3, 1, 26); g.fillRect(28, 3, 1, 26);
-    g.fillStyle = rgb(150, 140, 118);
-    for (let i = 0; i < 8; i++) { g.fillRect(16 - i, 8 + i, 1, 1); g.fillRect(15 + i, 8 + i, 1, 1); g.fillRect(16 - i, 23 - i, 1, 1); g.fillRect(15 + i, 23 - i, 1, 1); }
+    const R = rng(71 + kind.length);
+    const flecks = (a, b, n = 120) => {
+      for (let i = 0; i < n; i++) { g.fillStyle = R() > 0.5 ? a : b; g.fillRect((R() * 32) | 0, (R() * 32) | 0, 2, 1); }
+    };
+    const frame = (inset, col) => {
+      g.fillStyle = col;
+      g.fillRect(inset, inset, 32 - inset * 2, 1); g.fillRect(inset, 31 - inset, 32 - inset * 2, 1);
+      g.fillRect(inset, inset, 1, 32 - inset * 2); g.fillRect(31 - inset, inset, 1, 32 - inset * 2);
+    };
+    if (kind === 'warm') {
+      // muted rust-ochre wool, umber edge, a bone inner frame and a stitched
+      // centre row: soft, not a plank floor
+      g.fillStyle = rgb(118, 80, 52); g.fillRect(0, 0, 32, 32);
+      flecks(rgb(128, 88, 58), rgb(106, 72, 46), 160);
+      frame(0, rgb(66, 44, 30)); frame(1, rgb(84, 56, 38));
+      frame(4, rgb(168, 150, 116));
+      g.fillStyle = rgb(150, 110, 72);
+      for (let x = 8; x < 24; x += 2) g.fillRect(x, 15 + ((x >> 1) & 1), 1, 1);
+      g.fillStyle = rgb(92, 60, 40);
+      g.fillRect(7, 7, 2, 2); g.fillRect(23, 7, 2, 2); g.fillRect(7, 23, 2, 2); g.fillRect(23, 23, 2, 2);
+    } else if (kind === 'felt') {
+      g.fillStyle = rgb(70, 78, 86); g.fillRect(0, 0, 32, 32);
+      flecks(rgb(76, 84, 92), rgb(64, 71, 78), 90);
+      frame(0, rgb(46, 50, 56));
+      g.fillStyle = rgb(104, 110, 112);
+      for (let t = 2; t < 30; t += 2) { g.fillRect(t, 2, 1, 1); g.fillRect(t, 29, 1, 1); g.fillRect(2, t, 1, 1); g.fillRect(29, t, 1, 1); }
+    } else if (kind === 'runner') {
+      g.fillStyle = rgb(62, 66, 44); g.fillRect(0, 0, 32, 32);
+      flecks(rgb(70, 74, 50), rgb(54, 58, 38));
+      frame(0, rgb(40, 40, 28));
+      g.fillStyle = rgb(186, 176, 146);
+      for (const x of [3, 5, 26, 28]) g.fillRect(x, 2, 1, 28);
+      g.fillStyle = rgb(120, 96, 60);
+      g.fillRect(8, 15, 16, 2);
+    } else {
+      g.fillStyle = rgb(40, 62, 64); g.fillRect(0, 0, 32, 32);
+      flecks(rgb(48, 72, 74), rgb(34, 52, 54));
+      frame(1, rgb(170, 160, 136));
+      frame(3, rgb(120, 60, 44));
+      g.fillStyle = rgb(150, 140, 118);
+      for (let i = 0; i < 8; i++) { g.fillRect(16 - i, 8 + i, 1, 1); g.fillRect(15 + i, 8 + i, 1, 1); g.fillRect(16 - i, 23 - i, 1, 1); g.fillRect(15 + i, 23 - i, 1, 1); }
+    }
     return toTexture(c, false);
   }),
 

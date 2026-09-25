@@ -75,6 +75,34 @@ const drain = async () => {
 await sleep(1500);
 await drain();
 
+// ---- the game's own settings path (no forced setLowHeight): what a default
+// install actually renders, and what each RES value gives
+const sp = await g(() => {
+  const G = window.__game, R = G.renderer;
+  const s = { ...G.ui.settings, crt: false };
+  G.applySettings(s);
+  const now = { res: s.res, k: R.scale, lowW: R.lowW, lowH: R.lowH };
+  const sweep = {};
+  for (const v of ['auto', 240, 270, 320, 360]) { G.applySettings({ ...s, res: v }); sweep[v] = R.lowH; }
+  G.applySettings(s);
+  const lines = (W, H) => (R.planLowRes ? ['auto', 240, 270, 320, 360].map((v) => R.planLowRes(v, W, H).lines) : null);
+  return { now, sweep, short: Math.min(innerWidth, innerHeight) * (devicePixelRatio || 1), p720: lines(1280, 720), p1080: lines(1920, 1080), p768: lines(1366, 768) };
+});
+console.log('settings path', JSON.stringify(sp));
+if (VW === 1280 && VH === 720) {
+  if (sp.now.lowH >= 360) pass('settings-default-lines', `default settings (res ${sp.now.res}) render ${sp.now.lowW}×${sp.now.lowH} ×${sp.now.k} at 720p`);
+  else fail('settings-default-lines', `default settings (res ${sp.now.res}) render only ${sp.now.lowH} lines at 720p`);
+}
+{
+  const bad = [240, 320, 360].filter((v) => sp.sweep[v] < Math.min(v, sp.short));
+  if (!bad.length && sp.sweep[270] === sp.sweep.auto) pass('settings-res-min-lines', `RES → lines ${JSON.stringify(sp.sweep)} (a number is a minimum; legacy 270 = auto)`);
+  else fail('settings-res-min-lines', JSON.stringify(sp.sweep));
+  const want = { p720: [360, 240, 360, 360, 360], p1080: [360, 270, 360, 360, 360], p768: [384, 256, 384, 384, 384] };
+  const off = Object.keys(want).filter((k) => JSON.stringify(sp[k]) !== JSON.stringify(want[k]));
+  if (!off.length) pass('res-plan', `AUTO/240/270/320/360 → 720p ${sp.p720.join('/')}, 1080p ${sp.p1080.join('/')}, 768p ${sp.p768.join('/')} lines`);
+  else fail('res-plan', off.map((k) => `${k} ${JSON.stringify(sp[k])} ≠ ${JSON.stringify(want[k])}`).join('; '));
+}
+
 // ---- presentation setup: CRT off, requested line count, controls-stream camera
 await g(([res, native]) => {
   const G = window.__game;
@@ -177,7 +205,8 @@ async function blockCheck(name) {
 const SPOTS = [
   ['cryo', 8.0, 40.2, 0, { floor: 0.16 }],
   ['corridor', 15.0, 33.5, Math.PI, { floor: 0.10 }],
-  ['concourse', 31.0, 31.0, Math.PI / 2, { floor: 0.08, glitchCheck: true }],
+  ['concourse', 31.0, 31.0, Math.PI / 2, { floor: 0.08 }],
+  ['concourse-hollow', 35.6, 31.0, Math.PI / 2, { floor: 0.08, glitchCheck: 'e_G1' }],
   ['concourse-powered', 31.0, 31.0, Math.PI / 2, { powered: true, floor: 0.12 }],
   ['quiet', 10.0, 23.6, Math.PI, { floor: 0.18 }],
   ['quiet2', 51.6, 38.6, Math.PI, { floor: 0.18 }],
@@ -193,6 +222,7 @@ const SPOTS = [
   ['comms', 47.0, 4.6, Math.PI, { powered: true, floor: 0.10 }],
 ];
 
+const LIT_GUARD = 1.0;
 const lumaLog = [];
 let didBlock = false;
 for (const [name, x, z, yaw, o] of SPOTS) {
@@ -227,19 +257,71 @@ for (const [name, x, z, yaw, o] of SPOTS) {
     const threat = G.threat || 0;
     return { room: room.key, ...r, threat };
   }, []);
+  // is the named Hollow actually on screen?
+  const inFrame = o.glitchCheck ? await g((id) => {
+    const G = window.__game, e = G.enemies.find((q) => q.id === id);
+    if (!e || !e.active) return false;
+    const v = e.pos.clone ? e.pos.clone() : null;
+    if (!v) return false;
+    v.y = 0.8; v.project(G.camera);
+    return Math.abs(v.x) < 0.95 && Math.abs(v.y) < 0.95 && v.z < 1;
+  }, o.glitchCheck) : null;
   lumaLog.push({ name, ...L });
   const fl = L.points ? L.points.mean : 0;
-  console.log(`shot world-${name}.png  room ${L.room}  floor ${fl.toFixed(3)}  frame ${L.mean.toFixed(3)}  median ${L.median.toFixed(3)}  p90 ${L.p90.toFixed(3)}  black ${(L.dark * 100).toFixed(0)}%`);
+  const lit = L.lit ? L.lit.mean : L.mean;
+  console.log(`shot world-${name}.png  room ${L.room}  floor ${fl.toFixed(3)}  lit ${lit.toFixed(3)} (${L.lit ? (L.lit.frac * 100).toFixed(0) : '?'}% of frame)  frame ${L.mean.toFixed(3)}  median ${L.median.toFixed(3)}  p90 ${L.p90.toFixed(3)}  black ${(L.dark * 100).toFixed(0)}%`);
+  // Two metrics (plan §7.1 names the mean luma of the low-res target):
+  //   floor — mean graded luma under the room's projected floor tiles, ≥ the plan target;
+  //   lit   — the plan's own metric, the mean over the low-res target, but
+  //           only over pixels that show geometry: the black void outside the
+  //           room is left out (it is 25–80% of a corridor frame and is meant
+  //           to be black). Also ≥ the plan target (LIT_GUARD = 1), so a
+  //           relight cannot crush the walls and props while the floor passes.
+  //   frame — the whole target, void included; reported, not asserted.
   if (o.floor !== undefined) {
     if (fl >= o.floor) pass('luma-' + name, `floor ${fl.toFixed(3)} ≥ ${o.floor}`);
     else fail('luma-' + name, `floor ${fl.toFixed(3)} < ${o.floor}`);
+    const guard = +(o.floor * LIT_GUARD).toFixed(3);
+    if (lit >= guard) pass('lit-' + name, `lit frame ${lit.toFixed(3)} ≥ ${guard}`);
+    else fail('lit-' + name, `lit frame ${lit.toFixed(3)} < ${guard}`);
   }
   if (o.glitchCheck) {
+    if (inFrame) pass('hollow-in-frame-' + name, `${o.glitchCheck} is on screen`);
+    else fail('hollow-in-frame-' + name, `${o.glitchCheck} is not on screen`);
     const eff = Math.max(0, glitch.gl - 0.14);
     if (eff <= 0 && glitch.tear <= 0) pass('no-ambient-glitch-' + name, `uGlitch ${glitch.gl.toFixed(3)} (threat ${L.threat.toFixed(2)}) below the event knee`);
     else fail('no-ambient-glitch-' + name, `uGlitch ${glitch.gl.toFixed(3)} tear ${glitch.tear}`);
   }
   if (!didBlock) { await blockCheck(name); didBlock = true; }
+}
+
+// ---- chase case: a Hollow chasing within 3 m may give at most the single-row
+// event tears (uTear ≤ 0.06), never the full glitch. This needs D2's
+// updatePost (integration request D2 #2); the base game still feeds
+// threat·0.35 into uGlitch, so until then it is an expected failure (XFAIL,
+// not counted). It reports XPASS once D2 lands.
+if (!ONLY || ONLY.includes('concourse-chase')) {
+  await g(() => {
+    const G = window.__game;
+    G.state.powered = false; G.world.setPowered(false);
+    G.__shotCam.target = null;
+    G.debugTeleport(35.6, 31.0, Math.PI / 2);
+    const e = G.enemies.find((q) => q.id === 'e_G1');
+    e.__prevState = e.state; e.state = 'chase';
+  });
+  await sleep(600);
+  let peak = { gl: 0, tear: 0 };
+  for (let i = 0; i < 12; i++) {
+    const u = await g(() => { const u = window.__game.renderer.uniforms; return { gl: u.uGlitch.value, tear: u.uTear ? u.uTear.value : 0 }; });
+    peak = { gl: Math.max(peak.gl, u.gl), tear: Math.max(peak.tear, u.tear) };
+    await sleep(100);
+  }
+  await page.screenshot({ path: `${out}/world-concourse-chase.png` });
+  const threat = await g(() => window.__game.threat || 0);
+  const ok = peak.gl <= 0.14 && peak.tear <= 0.06;
+  if (ok) pass('chase-glitch', `XPASS: chasing within 3 m, uGlitch ${peak.gl.toFixed(3)} ≤ 0.14, uTear ${peak.tear.toFixed(2)} ≤ 0.06`);
+  else console.log(`XFAIL chase-glitch — chasing within 3 m (threat ${threat.toFixed(2)}): uGlitch ${peak.gl.toFixed(3)}, uTear ${peak.tear.toFixed(2)}; expected until D2's updatePost drops the threat feed`);
+  await g(() => { const e = window.__game.enemies.find((q) => q.id === 'e_G1'); e.state = e.__prevState || 'dormant'; });
 }
 
 // ---- close-ups of the new props (camera parked on the prop)
@@ -248,8 +330,9 @@ if (DETAILS) {
     ['detail-backup-deck', 'C', 10.0, 22.4, [10.0, 21.2], 6.5, 48],
     ['detail-deck-writing', 'C', 11.4, 22.8, [10.0, 20.4, 1.05], 3.6, 34, true],
     ['detail-locker', 'C', 8.6, 22.4, [8.3, 21.0], 6.0, 48],
-    ['detail-plan', 'G', 28.4, 31.4, [28.4, 30.3], 6.0, 40],
-    ['detail-posters', 'G', 26.5, 31.2, [27.0, 30.4], 8.0, 45],
+    // wall-mounted: aim at the prop's height, not the floor in front of it
+    ['detail-plan', 'G', 28.4, 31.5, [28.4, 30.2, 1.55], 3.6, 22],
+    ['detail-posters', 'G', 27.8, 31.5, [27.75, 30.2, 1.55], 8.8, 22],
     ['detail-corridor-posters', 'B', 15.0, 38.5, [15.0, 36.5], 7.0, 55],
     ['detail-door', 'G', 22.4, 31.4, [22.5, 29.8], 6.0, 42],
     ['detail-deck2', 'N', 51.5, 38.6, [51.2, 37.2], 6.5, 48],
@@ -260,6 +343,9 @@ if (DETAILS) {
       const G = window.__game;
       G.__shotCam.target = tgt; G.__shotCam.dist = dist; G.__shotCam.pitch = pitch;
       G.debugTeleport(x, z, Math.PI);
+      // the prop is the subject: keep Wren out of the way
+      const rig = G.player && G.player.rig;
+      if (rig && rig.root) rig.root.visible = false;
       if (spin && G.world.spinReels) G.world.spinReels(6);
     }, [x, z, tgt, dist, pitch, !!spin]);
     await sleep(1200);
@@ -275,7 +361,10 @@ if (DETAILS) {
       else fail('backup-deck-spin', JSON.stringify(st));
     }
   }
-  await g(() => { const G = window.__game; G.__shotCam.target = null; G.__shotCam.dist = 17.5; G.__shotCam.pitch = 62; });
+  await g(() => {
+    const G = window.__game; G.__shotCam.target = null; G.__shotCam.dist = 17.5; G.__shotCam.pitch = 62;
+    const rig = G.player && G.player.rig; if (rig && rig.root) rig.root.visible = true;
+  });
 }
 
 // ---- post effects gallery (--fx): each uniform / option on its own in the cryo bay
@@ -311,6 +400,35 @@ if (arg('fx', false)) {
   await g(() => { const G = window.__game; G.__fxHold = { uMenu: 0, uCritical: 0, uTear: 0, uSweep: -1 }; G.renderer.setOptions({ crt: false, grain: false }); });
   await sleep(300);
   await g(() => { window.__game.__fxHold = null; });
+}
+
+// ---- staged fight in the pre-power concourse: Wren aims at a waking Hollow
+// over the blood decal. world-concourse-fight.png is the by-eye check that the
+// laser, the blood and the Hollow read against the emergency lighting.
+if (!ONLY || ONLY.includes('concourse-fight')) {
+  await g(() => {
+    const G = window.__game;
+    G.state.powered = false; G.world.setPowered(false);
+    G.__shotCam.target = null; G.__shotCam.dist = 17.5; G.__shotCam.pitch = 62;
+    if (!G.inv.weapon()) G.inv.add('pistol', 1);
+    const w = G.inv.weapon(); if (w) w.loaded = Math.max(w.loaded || 0, 8);
+    G.debugTeleport(35.0, 31.2, Math.PI / 2);
+    const e = G.enemies.find((q) => q.id === 'e_G1');
+    delete e.update; // let it wake and rise
+  });
+  await page.keyboard.down('Space');
+  const woke = await until(() => window.__game.enemies.find((q) => q.id === 'e_G1').state !== 'dormant', 6000);
+  await sleep(1100);
+  await page.screenshot({ path: `${out}/world-concourse-fight.png` });
+  const st = await g(() => {
+    const G = window.__game, e = G.enemies.find((q) => q.id === 'e_G1');
+    return { state: e.state, laser: !!(G.player.laser && G.player.laser.visible), hp: G.player.hp };
+  });
+  await page.keyboard.up('Space');
+  await g(() => { const G = window.__game; const e = G.enemies.find((q) => q.id === 'e_G1'); e.update = function () {}; G.player.hp = Math.max(G.player.hp, 100); });
+  console.log(`shot world-concourse-fight.png  hollow ${st.state}  laser ${st.laser ? 'on' : 'off'}  hp ${st.hp}`);
+  if (woke && st.laser) pass('fight-staged', `Hollow ${st.state}, laser on`);
+  else fail('fight-staged', JSON.stringify({ woke, ...st }));
 }
 
 await writeFile(`${out}/world-luma.json`, JSON.stringify(lumaLog, null, 2));

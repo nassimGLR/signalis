@@ -5,7 +5,11 @@
 // whole number, so every scene pixel becomes an exact k×k block, and applies
 // the grade: a light saturation lift that lets signal reds through, a mild
 // S-curve with lifted shadows, posterisation to ~20 levels per channel and a
-// light 4×4 Bayer dither on the low-res grid.
+// light 4×4 Bayer dither on the low-res grid. True black (the void outside the
+// rooms) stays clean black: no shadow lift and no dither there.
+//
+// Line count: 'auto' gives ~360 lines at 720p/1080p; a number is a minimum
+// ("at least n lines" at a whole scale); see planLowRes().
 //
 // Everything that used to make the picture murky (barrel curvature, scanlines,
 // aperture grille, film grain, rolling bar, chromatic fringe) is still here but
@@ -104,10 +108,13 @@ vec3 grade(vec3 c) {
   float redness = clamp((c.r - max(c.g, c.b)) * 2.5, 0.0, 1.0);
   vec3 s = max(mix(vec3(l), c, uSat), 0.0);
   vec3 tinted = s * mix(vec3(0.97, 1.0, 1.03), vec3(1.0), redness);
-  // mild S-curve, then lift the shadows so black is never quite dead
+  // mild S-curve, then lift the shadows of lit surfaces so they never go dead.
+  // The lift fades in above the first posterise step, so the void outside the
+  // rooms (true black) stays clean black instead of a dithered screen door.
   vec3 sc = clamp(tinted, 0.0, 1.0);
   sc = mix(sc, sc * sc * (3.0 - 2.0 * sc), 0.16);
-  vec3 g = mix(vec3(0.020, 0.025, 0.030), vec3(1.0), sc);
+  vec3 lift = vec3(0.020, 0.025, 0.030) * smoothstep(0.004, 0.035, l);
+  vec3 g = mix(lift, vec3(1.0), sc);
   // memory grade: washed, cyan-white, low contrast
   vec3 mem = mix(vec3(0.10, 0.14, 0.16), vec3(0.86, 0.95, 0.97), pow(max(l, 0.0), 0.8));
   return mix(g, mem, uTint);
@@ -206,9 +213,11 @@ void main() {
 
   col *= uFade;
 
-  // posterise with a light ordered dither, on the low-res grid
+  // posterise with a light ordered dither, on the low-res grid. The dither
+  // fades out toward black so near-black stays solid (no static checkerboard).
   float levels = mix(uLevels, 8.0, uMenu);
-  col += bayer4(lp) * uDither / levels;
+  float lq = dot(max(col, 0.0), vec3(0.299, 0.587, 0.114));
+  col += bayer4(lp) * uDither * smoothstep(0.0, 0.08, lq) / levels;
   col = floor(clamp(col, 0.0, 1.0) * levels + 0.5) / levels;
 
   // ---------------- CRT option (off by default) ----------------
@@ -225,6 +234,48 @@ void main() {
 }`;
 
 const LUMA_POINT = new THREE.Vector3();
+
+// The settings default before an AUTO option existed (v1, and B's v2 schema in
+// Phase 1). It is read as 'auto' so a default install gets the ~360-line picture
+// instead of a 240-line one; pick 240 (or any other number) for a fixed count.
+export const LEGACY_DEFAULT_RES = 270;
+
+// Settings value → 'auto' | line count.
+export function normalizeLowHeight(h) {
+  if (h === 'auto' || h === null || h === undefined || h === '' || !Number(h)) return 'auto';
+  const n = Math.round(Number(h));
+  return n === LEGACY_DEFAULT_RES ? 'auto' : n;
+}
+
+// Pure layout: how a viewport of W×H device pixels is drawn for a requested
+// line count. With pixel-perfect scaling each scene pixel is a k×k block:
+//   'auto' → k = floor(short / 300), at least 2 once short ≥ 400
+//            (360 lines at 720p and 1080p, 384 at 768p);
+//   n      → "at least n lines": k = floor(short / n), so 240 at 720p is ×3
+//            (240 lines), 320 or 360 at 720p is ×2 (360 lines), 240 at 1080p
+//            is ×4 (270 lines).
+// Without pixel-perfect the short side gets exactly the line count, stretched.
+export function planLowRes(W, H, lowHeight = 'auto', pixelPerfect = true) {
+  const h = normalizeLowHeight(lowHeight);
+  const auto = h === 'auto';
+  const short = Math.max(1, Math.min(W, H));
+  if (pixelPerfect) {
+    let k;
+    if (auto) {
+      k = Math.max(1, Math.floor(short / 300));
+      if (short >= 400) k = Math.max(k, 2);
+    } else {
+      k = Math.max(1, Math.floor(short / h));
+    }
+    const lowW = Math.max(1, Math.floor(W / k));
+    const lowH = Math.max(1, Math.floor(H / k));
+    return { k, lowW, lowH, lines: Math.min(lowW, lowH), outW: lowW * k, outH: lowH * k, auto };
+  }
+  const lines = auto ? Math.max(200, Math.round(short / Math.max(1, Math.floor(short / 330)))) : h;
+  let lowW, lowH;
+  if (W >= H) { lowH = lines; lowW = Math.round(lines * W / H); } else { lowW = lines; lowH = Math.round(lines * H / W); }
+  return { k: short / lines, lowW, lowH, lines, outW: W, outH: H, auto };
+}
 
 export class Renderer {
   constructor(canvas) {
@@ -294,10 +345,19 @@ export class Renderer {
 
   get uniforms() { return this.post.uniforms; }
 
-  // h: a line count (240/270/320/360…) or 'auto' / 0 / null.
+  // h: 'auto' / 0 / null, or a minimum line count (240/320/360…). With
+  // pixel-perfect scaling a number means "at least this many lines" at a whole
+  // scale (see planLowRes). The legacy default 270 means 'auto'.
   setLowHeight(h) {
-    this.lowHeight = (h === 'auto' || !h) ? 'auto' : Number(h);
+    this.lowHeight = normalizeLowHeight(h);
     this.resize();
+  }
+
+  // What a settings value would give on this screen (or on W×H device pixels):
+  // { k, lowW, lowH, lines, auto }. For menu labels: `${r.lines} LINES`.
+  planLowRes(h = this.lowHeight, W, H) {
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    return planLowRes(W ?? Math.round(Math.max(1, window.innerWidth) * dpr), H ?? Math.round(Math.max(1, window.innerHeight) * dpr), h, this.pixelPerfect);
   }
 
   setPixelPerfect(on) {
@@ -314,7 +374,7 @@ export class Renderer {
     let dirty = false;
     if ('pixelPerfect' in s && (s.pixelPerfect !== false) !== this.pixelPerfect) { this.pixelPerfect = s.pixelPerfect !== false; dirty = true; }
     if ('res' in s) {
-      const h = (s.res === 'auto' || !s.res) ? 'auto' : Number(s.res);
+      const h = normalizeLowHeight(s.res);
       if (h !== this.lowHeight) { this.lowHeight = h; dirty = true; }
     }
     if (dirty) this.resize();
@@ -326,30 +386,11 @@ export class Renderer {
     const cssH = Math.max(1, window.innerHeight);
     const W = Math.max(1, Math.round(cssW * dpr));
     const H = Math.max(1, Math.round(cssH * dpr));
-    const short = Math.min(W, H);
-    const auto = this.lowHeight === 'auto';
-    let outW, outH;
-    if (this.pixelPerfect) {
-      let k;
-      if (auto) {
-        k = Math.max(1, Math.floor(short / 300));
-        if (short >= 400) k = Math.max(k, 2);
-      } else {
-        k = Math.max(1, Math.round(short / this.lowHeight));
-      }
-      this.scale = k;
-      this.lowW = Math.max(1, Math.floor(W / k));
-      this.lowH = Math.max(1, Math.floor(H / k));
-      outW = this.lowW * k;
-      outH = this.lowH * k;
-    } else {
-      // fit: the short side gets exactly the requested line count, stretched to fill
-      const lines = auto ? Math.max(200, Math.round(short / Math.max(1, Math.floor(short / 330)))) : this.lowHeight;
-      if (W >= H) { this.lowH = lines; this.lowW = Math.round(lines * W / H); }
-      else { this.lowW = lines; this.lowH = Math.round(lines * H / W); }
-      this.scale = short / lines;
-      outW = W; outH = H;
-    }
+    const plan = planLowRes(W, H, this.lowHeight, this.pixelPerfect);
+    this.scale = plan.k;
+    this.lowW = plan.lowW;
+    this.lowH = plan.lowH;
+    const outW = plan.outW, outH = plan.outH;
     this.gl.setSize(outW, outH, false);
     const st = this.canvas.style;
     st.width = (outW / dpr) + 'px';
@@ -384,14 +425,18 @@ export class Renderer {
   // Harness helper: re-renders the last frame and measures luma on the low-res
   // grid. `graded` (default) measures what the player sees after the grade;
   // `points` ([[x,y,z], …] in world space) also reports the luma under each
-  // projected point, e.g. a room's floor tiles. Returns
-  // { mean, median, p10, p90, dark, w, h, points: { mean, n } | null }.
+  // projected point, e.g. a room's floor tiles. `lit` is the mean over pixels
+  // that show geometry (the raw scene is not the black clear colour), i.e. the
+  // frame without the void outside the rooms. Returns
+  // { mean, median, p10, p90, dark, w, h, lit: { mean, frac }, points: { mean, n } | null }.
   debugLuma({ graded = true, points = null, scene = this.lastScene, camera = this.lastCamera } = {}) {
     if (!scene || !camera) return null;
     const w = this.lowW, h = this.lowH;
     this.gl.setRenderTarget(this.target);
     this.gl.clear();
     this.gl.render(scene, camera);
+    const raw = new Uint8Array(w * h * 4);
+    this.gl.readRenderTargetPixels(this.target, 0, 0, w, h, raw);
     let rt = this.target;
     if (graded) {
       if (!this.probe) {
@@ -406,11 +451,12 @@ export class Renderer {
     this.gl.readRenderTargetPixels(rt, 0, 0, w, h, buf);
     this.gl.setRenderTarget(null);
     const lum = new Float32Array(w * h);
-    let sum = 0, dark = 0;
+    let sum = 0, dark = 0, litSum = 0, litN = 0;
     for (let i = 0; i < w * h; i++) {
       const v = (0.299 * buf[i * 4] + 0.587 * buf[i * 4 + 1] + 0.114 * buf[i * 4 + 2]) / 255;
       lum[i] = v; sum += v;
       if (v < 0.04) dark++;
+      if (raw[i * 4] + raw[i * 4 + 1] + raw[i * 4 + 2] > 0) { litSum += v; litN++; }
     }
     const sorted = Array.from(lum).sort((a, b) => a - b);
     const q = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
@@ -426,6 +472,9 @@ export class Renderer {
       }
       pts = { mean: pn ? ps / pn : 0, n: pn };
     }
-    return { mean: sum / (w * h), median: q(0.5), p10: q(0.1), p90: q(0.9), dark: dark / (w * h), w, h, points: pts };
+    return {
+      mean: sum / (w * h), median: q(0.5), p10: q(0.1), p90: q(0.9), dark: dark / (w * h), w, h,
+      lit: { mean: litN ? litSum / litN : 0, frac: litN / (w * h) }, points: pts,
+    };
   }
 }
