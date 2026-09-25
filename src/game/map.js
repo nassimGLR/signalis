@@ -63,9 +63,9 @@ export const LIGHTS = [
   { room: 'A', x: 10.5, z: 40.2, color: 0xc2e4e6, i: 2.7, d: 8, flicker: 0.02 },
   { room: 'A', x: 12.3, z: 39.2, y: 2.3, color: 0xff2020, i: 1.2, d: 4, pulse: 1.2 },
   // West corridor
-  { room: 'B', x: 15, z: 21, color: 0xd8d0b8, i: 1.5, d: 6, flicker: 0.3 },
-  { room: 'B', x: 15, z: 28, color: 0xd8d0b8, i: 1.7, d: 6, flicker: 0.02 },
-  { room: 'B', x: 15, z: 35, color: 0xd8d0b8, i: 1.4, d: 6, flicker: 0.5 },
+  { room: 'B', x: 15, z: 21, color: 0xd8d0b8, i: 2.0, d: 7, flicker: 0.3 },
+  { room: 'B', x: 15, z: 28, color: 0xd8d0b8, i: 2.2, d: 7, flicker: 0.02 },
+  { room: 'B', x: 15, z: 35, color: 0xd8d0b8, i: 2.0, d: 7, flicker: 0.25 },
   { room: 'B', x: 15, z: 42, color: 0xff3030, i: 1.3, d: 5, pulse: 0.7 },
   // Quiet room — sodium over the backup deck, a bedside lamp, the deck's glow
   { room: 'C', x: 10, z: 21.6, y: 2.3, color: 0xe9b872, i: 3.0, d: 7.5 },
@@ -100,11 +100,11 @@ export const LIGHTS = [
   { room: 'F', x: 34.5, z: 36, color: 0xc8f4f4, i: 2.6, d: 8, power: 'main', flicker: 0.05 },
   { room: 'F', x: 34.5, z: 36, color: 0xff2020, i: 0.8, d: 6, power: 'emergency', pulse: 0.4 },
   // East corridor
-  { room: 'K', x: 47, z: 11, color: 0xd8e4e4, i: 1.4, d: 6 },
-  { room: 'K', x: 47, z: 19, color: 0xd8e4e4, i: 1.4, d: 6, flicker: 0.3 },
-  { room: 'K', x: 47, z: 27, color: 0xff3030, i: 1.2, d: 6, pulse: 0.8 },
-  { room: 'K', x: 47, z: 35, color: 0xd8e4e4, i: 1.2, d: 6, flicker: 0.1 },
-  { room: 'K', x: 47, z: 42, color: 0xd8e4e4, i: 1.0, d: 6, flicker: 0.7 },
+  { room: 'K', x: 47, z: 11, color: 0xd8e4e4, i: 1.9, d: 7 },
+  { room: 'K', x: 47, z: 19, color: 0xd8e4e4, i: 1.9, d: 7, flicker: 0.3 },
+  { room: 'K', x: 47, z: 27, color: 0xff3030, i: 1.4, d: 6, pulse: 0.8 },
+  { room: 'K', x: 47, z: 33.5, color: 0xd8e4e4, i: 1.8, d: 7, flicker: 0.1 },
+  { room: 'K', x: 47, z: 41, color: 0xd8e4e4, i: 1.6, d: 7, flicker: 0.4 },
   // Observation — planet light falls in along the whole window
   { room: 'L', x: 51.5, z: 17.4, y: 2.0, color: 0xffd8a8, i: 1.7, d: 8 },
   { room: 'L', x: 55.5, z: 17.4, y: 2.0, color: 0xffd8a8, i: 2.4, d: 10 },

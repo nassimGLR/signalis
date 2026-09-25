@@ -208,13 +208,16 @@ for (const [name, x, z, yaw, o] of SPOTS) {
     await page.screenshot({ path: `${out}/world-${name}.png` });
     const after = await g(() => { const u = window.__game.renderer.uniforms; return { gl: u.uGlitch.value, tear: u.uTear ? u.uTear.value : 0 }; });
     glitch = { gl: Math.max(before.gl, after.gl), tear: Math.max(before.tear, after.tear) };
-    if (!o.glitchCheck || (glitch.gl <= 0.15 && glitch.tear <= 0)) break;
+    if (!o.glitchCheck || (glitch.gl <= 0.14 && glitch.tear <= 0)) break;
     await sleep(300); // a random legacy spike: shoot again
   }
   const L = await g(([]) => {
     const G = window.__game, room = G.world.rooms[G.state.currentRoom];
     const pts = [];
-    for (let zz = room.z0; zz <= room.z1; zz++) for (let xx = room.x0; xx <= room.x1; xx++) pts.push([xx + 0.5, 0.0, zz + 0.5]);
+    // 3×3 samples per floor tile, offset so they don't all land on a grate bar
+    for (let zz = room.z0; zz <= room.z1; zz++) for (let xx = room.x0; xx <= room.x1; xx++) {
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) pts.push([xx + (i + 0.37) / 3, 0.0, zz + (j + 0.61) / 3]);
+    }
     const r = G.renderer.debugLuma({ points: pts });
     const threat = G.threat || 0;
     return { room: room.key, ...r, threat };
@@ -227,7 +230,7 @@ for (const [name, x, z, yaw, o] of SPOTS) {
     else fail('luma-' + name, `floor ${fl.toFixed(3)} < ${o.floor}`);
   }
   if (o.glitchCheck) {
-    const eff = Math.max(0, glitch.gl - 0.15);
+    const eff = Math.max(0, glitch.gl - 0.14);
     if (eff <= 0 && glitch.tear <= 0) pass('no-ambient-glitch-' + name, `uGlitch ${glitch.gl.toFixed(3)} (threat ${L.threat.toFixed(2)}) below the event knee`);
     else fail('no-ambient-glitch-' + name, `uGlitch ${glitch.gl.toFixed(3)} tear ${glitch.tear}`);
   }
@@ -239,8 +242,10 @@ if (DETAILS) {
   const CLOSE = [
     ['detail-backup-deck', 'C', 10.0, 22.4, [10.0, 21.2], 6.5, 48],
     ['detail-locker', 'C', 8.6, 22.4, [8.3, 21.0], 6.0, 48],
-    ['detail-plan-west', 'B', 15.0, 30.5, [15.0, 29.0], 6.5, 50],
+    ['detail-plan', 'G', 28.4, 31.4, [28.4, 30.3], 6.0, 40],
     ['detail-posters', 'G', 26.5, 31.2, [27.0, 30.4], 8.0, 45],
+    ['detail-corridor-posters', 'B', 15.0, 38.5, [15.0, 36.5], 7.0, 55],
+    ['detail-door', 'G', 22.4, 31.4, [22.5, 29.8], 6.0, 42],
     ['detail-deck2', 'N', 51.5, 38.6, [51.2, 37.2], 6.5, 48],
   ];
   for (const [name, room, x, z, tgt, dist, pitch] of CLOSE) {
@@ -256,6 +261,41 @@ if (DETAILS) {
     console.log(`shot world-${name}.png`);
   }
   await g(() => { const G = window.__game; G.__shotCam.target = null; G.__shotCam.dist = 17.5; G.__shotCam.pitch = 62; });
+}
+
+// ---- post effects gallery (--fx): each uniform / option on its own in the cryo bay
+if (arg('fx', false)) {
+  await g(() => { const G = window.__game; G.state.powered = false; G.world.setPowered(false); G.debugTeleport(8.0, 40.2, 0); });
+  await sleep(1200);
+  const FX = [
+    ['menu', { uMenu: 1 }], ['failing', { uCritical: 0.5 }], ['critical', { uCritical: 1 }],
+    ['tear', { uTear: 0.25 }], ['sweep', { uSweep: 0.45 }], ['glitch', { uGlitch: 0.9 }], ['damage', { uDamage: 0.6 }],
+    ['memory', { uTint: 1 }], ['crt', { crt: true }], ['grain', { grain: true }],
+  ];
+  for (const [name, set] of FX) {
+    await g((set) => {
+      const G = window.__game, u = G.renderer.uniforms;
+      G.__fxHold = set;
+      // hold the uniforms against the game's per-frame writes
+      if (!G.__fxWrapped) {
+        G.__fxWrapped = true;
+        const up = G.updatePost.bind(G);
+        G.updatePost = (dt) => {
+          up(dt);
+          if (!G.__fxHold) return;
+          u.uMenu.value = 0; u.uCritical.value = 0; u.uTear.value = 0; u.uSweep.value = -1;
+          for (const [k, v] of Object.entries(G.__fxHold)) if (u[k]) u[k].value = v;
+        };
+      }
+      G.renderer.setOptions({ crt: !!set.crt, grain: !!set.grain });
+    }, set);
+    await sleep(set.uCritical ? 2600 : 700);
+    await page.screenshot({ path: `${out}/world-fx-${name}.png` });
+    console.log(`shot world-fx-${name}.png`);
+  }
+  await g(() => { const G = window.__game; G.__fxHold = { uMenu: 0, uCritical: 0, uTear: 0, uSweep: -1 }; G.renderer.setOptions({ crt: false, grain: false }); });
+  await sleep(300);
+  await g(() => { window.__game.__fxHold = null; });
 }
 
 await writeFile(`${out}/world-luma.json`, JSON.stringify(lumaLog, null, 2));

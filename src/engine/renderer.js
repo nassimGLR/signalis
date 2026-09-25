@@ -10,7 +10,7 @@
 // Everything that used to make the picture murky (barrel curvature, scanlines,
 // aperture grille, film grain, rolling bar, chromatic fringe) is still here but
 // off unless an option or an event turns it on. Glitches are for events only:
-// small uGlitch values (the old ambient "threat" feed) do not tear the image.
+// uGlitch at or below 0.14 (the old ambient "threat" feed) does not tear.
 //
 // Uniforms (all on `renderer.uniforms`):
 //   legacy : uTime uGlitch uDamage uFade uLevels uCurve uScan uTint uRedAlert
@@ -142,8 +142,8 @@ void main() {
   float calm = 1.0 - 0.6 * uCalm;
 
   // ---------------- events: tears, splits, static ----------------
-  // small uGlitch values (ambient feeds) do nothing; events start above 0.12
-  float g = clamp((uGlitch - 0.12) / 0.88, 0.0, 1.5) * calm;
+  // small uGlitch values (ambient feeds) do nothing; events start above 0.14
+  float g = clamp((uGlitch - 0.14) / 0.86, 0.0, 1.5) * calm;
   float failEvt = step(0.45, uCritical) * periodic(8.0, 2.0, 0.12, 3.0) * calm;
   float critEvt = step(0.95, uCritical) * periodic(3.2, 1.6, 0.22, 9.0) * (1.0 - uCalm);
   float tear = uTear * calm + failEvt * 0.25 + critEvt * 0.15;
