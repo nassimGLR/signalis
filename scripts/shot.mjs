@@ -576,21 +576,23 @@ if (scenario === 'mouse') {
   check('focus ≥ 0.9 within 1.3 s (game time)', focused && tFocus - tPress <= 1.3, `focus=${c5.aim.focus.toFixed(2)} t=${(tFocus - tPress).toFixed(2)}s`);
   await until(() => window.__game.ctl.aim.focus >= 0.95, 5000);
   await gameWait(0.15, 3000);
-  // the box wraps the body: the laser's end dot and the chest sit inside it
+  // the box wraps the body: the laser's end dot, the head, chest and feet sit inside it
   const fb = await g(() => {
     const G = window.__game, f = G.controls.gameState.focus, d = G.player.laserDot;
     const e = G.enemies.find((x) => x.id === G.ctl.aim.lockId);
     if (!f || !d || !d.visible || !e) return { ok: false, why: 'no box, laser or lock' };
-    const p = G.worldToScreen(d.position.x, d.position.y, d.position.z);
-    const m = e.rig.chest.matrixWorld.elements;
-    const c = G.worldToScreen(m[12], m[13], m[14]);
+    const r = (v) => Math.round(v);
     const half = f.size / 2;
     const inside = (q, pad) => Math.abs(q.x - f.x) <= half - pad && Math.abs(q.y - f.y) <= half - pad;
-    const r = (v) => Math.round(v);
-    return { ok: inside(p, 3) && inside(c, half * 0.35), dot: [r(p.x), r(p.y)], chest: [r(c.x), r(c.y)], box: [r(f.x), r(f.y), r(f.size)], state: e.state };
+    const at = (o) => { const m = o.matrixWorld.elements; return G.worldToScreen(m[12], m[13], m[14]); };
+    const p = G.worldToScreen(d.position.x, d.position.y, d.position.z);
+    const parts = {};
+    for (const b of ['head', 'chest', 'footL', 'footR']) { const q = at(e.rig[b]); parts[b] = [r(q.x), r(q.y), inside(q, 2)]; }
+    const ok = inside(p, 3) && Object.values(parts).every((q) => q[2]);
+    return { ok, dot: [r(p.x), r(p.y)], parts, box: [r(f.x), r(f.y), r(f.size)], state: e.state };
   });
   console.log('focus box', JSON.stringify(fb));
-  check('focus box wraps the target (laser end and chest inside)', fb.ok, JSON.stringify(fb));
+  check('focus box wraps the target (laser end and body inside)', fb.ok, JSON.stringify(fb));
   await snap('focus');
   const before = await g(() => window.__game.inv.weapon().loaded);
   await page.mouse.down(); await sleep(60); await page.mouse.up();

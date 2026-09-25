@@ -169,7 +169,7 @@ export class Cursor {
     });
     const hov = brackets.findIndex((b) => b.hovered);
     const labels = [];
-    const hit = (r, q) => r.x0 < q.x1 + M && r.x1 + M > q.x0 && r.y0 < q.y1 + M && r.y1 + M > q.y0;
+    const hit = (r, q, m = M) => r.x0 < q.x1 + m && r.x1 + m > q.x0 && r.y0 < q.y1 + m && r.y1 + m > q.y0;
     const arm = 7 * k;
     const cornersOf = (b) => [
       { x0: b.x0 - k, y0: b.y0 - k, x1: b.x0 + arm, y1: b.y0 + arm },
@@ -183,7 +183,9 @@ export class Cursor {
       if (r.x0 < 4 || r.x1 > this.w - 4 || r.y0 < 2 || r.y1 > this.h - 2) return false;
       for (let i = 0; i < boxes.length; i++) {
         if (i === own) continue;
-        if (own === -1 && i === hov) { for (const c of cornersOf(boxes[i])) if (hit(r, c)) return false; } else if (hit(r, boxes[i])) return false;
+        // keep a label as far from other brackets as from its own, so it
+        // can't be read as belonging to the neighbour
+        if (own === -1 && i === hov) { for (const c of cornersOf(boxes[i])) if (hit(r, c)) return false; } else if (hit(r, boxes[i], gap)) return false;
       }
       for (const q of labels) if (hit(r, q)) return false;
       return true;
