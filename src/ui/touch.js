@@ -1,23 +1,25 @@
 // On-screen controls for touch devices: a virtual stick on the left and an
-// action cluster on the right. They feed the same actions as the keyboard.
+// action cluster on the right. They press the same virtual keys as the
+// keyboard (plan §3.5): FIRE → KeyJ, ACT → KeyE, TOOL → KeyC.
 export function installTouch(input) {
   const root = document.createElement('div');
   root.id = 'touch';
   root.innerHTML = `
     <div class="t-stick"><div class="t-ring"><div class="t-knob"></div></div></div>
     <div class="t-top">
-      <button class="t-btn small" data-code="Tab">INV</button>
-      <button class="t-btn small" data-code="KeyM">MAP</button>
-      <button class="t-btn small" data-code="Escape">II</button>
+      <button class="t-btn small" data-code="Tab" aria-label="Inventory">INV</button>
+      <button class="t-btn small" data-code="KeyM" aria-label="Map">MAP</button>
+      <button class="t-btn small" data-code="Escape" aria-label="Pause"><span class="pz"></span></button>
     </div>
     <div class="t-pad">
+      <button class="t-btn tool" data-code="KeyC">TOOL</button>
+      <button class="t-btn" data-code="KeyR">RLD</button>
       <button class="t-btn" data-code="ShiftLeft" data-hold="1">RUN</button>
       <button class="t-btn aim" data-code="Space" data-hold="1">AIM</button>
-      <button class="t-btn fire" data-code="KeyF">FIRE</button>
+      <button class="t-btn fire" data-code="KeyJ">FIRE</button>
       <button class="t-btn act" data-code="KeyE">ACT</button>
-      <button class="t-btn" data-code="KeyR">RLD</button>
     </div>`;
-  document.getElementById('ui').appendChild(root);
+  document.body.appendChild(root);
 
   const show = () => { document.body.classList.add('touching'); };
   window.addEventListener('touchstart', show, { passive: true, once: true });
@@ -46,7 +48,7 @@ export function installTouch(input) {
   const ring = root.querySelector('.t-ring');
   const knob = root.querySelector('.t-knob');
   let id = null, ox = 0, oy = 0;
-  const R = 46;
+  const R = 34;
   zone.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const t = e.changedTouches[0];
