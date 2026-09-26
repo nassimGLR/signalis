@@ -328,12 +328,16 @@ export class World {
   buildLights() {
     const housing = psx(new THREE.MeshLambertMaterial({ map: Tex.metal(46, 6) }));
     for (const L of LIGHTS) {
-      const light = new THREE.PointLight(L.color, 0, L.d * 1.6, 1);
-      light.position.set(L.x, L.y ?? 2.3, L.z);
+      // Ceiling lights hang a little above the wall tops so they don't blow
+      // out heads and shoulders directly beneath them (hair read as white);
+      // a small intensity lift keeps the floor pools where they were.
+      const ceiling = L.y === undefined;
+      const light = new THREE.PointLight(L.color, 0, L.d * 1.6 + (ceiling ? 0.6 : 0), 1);
+      light.position.set(L.x, ceiling ? 2.85 : L.y, L.z);
       const room = this.rooms[L.room];
       room.group.add(light);
       const entry = {
-        light, base: L.i * LIGHT_SCALE, flicker: L.flicker || 0, pulse: L.pulse || 0, pulseDepth: L.pulseDepth ?? 0.5,
+        light, base: L.i * LIGHT_SCALE * (ceiling ? 1.18 : 1), flicker: L.flicker || 0, pulse: L.pulse || 0, pulseDepth: L.pulseDepth ?? 0.5,
         power: L.power || 'always', room: L.room, seed: Math.random() * 100,
       };
       this.lights.push(entry);

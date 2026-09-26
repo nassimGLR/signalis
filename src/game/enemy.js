@@ -283,7 +283,7 @@ export class Enemy {
     return true;
   }
 
-  // Cautery flare on a body: it burns, then it is ash for good.
+  // A scuttle wick on a body: it burns, then it is ash for good.
   burn() {
     if (!this.burnable) return false;
     this.hp = 0;
@@ -293,15 +293,7 @@ export class Enemy {
     return true;
   }
 
-  // Cautery flare on a live Hollow in reach: a hard hit, then it keeps burning.
-  ignite(dmg, fromYaw, from) {
-    if (!this.alive) return false;
-    this.burnT = HOLLOW.burnT;
-    this.scorch = Math.max(this.scorch, 0.25);
-    return this.takeHit(dmg, fromYaw, { from, stagger: true, unblockable: true });
-  }
-
-  // Arc prong: knocked flat whatever it was doing (the Warden's plate is no help).
+  // Shunt cartridge surge: knocked flat whatever it was doing (the Warden's plate is no help).
   shock(from) {
     if (!this.alive) return false;
     if (from) this.seen(from.x, from.z);
@@ -734,7 +726,16 @@ export class Enemy {
 
   restore(d) {
     if (d === 'dead') { this.kill(); return; }
-    if (d === 'alive') { if (this.def.spawn) this.activate(); return; }
+    if (d === 'alive') {
+      if (this.def.spawn) {
+        this.activate();
+        // A spawn Hollow saved standing had already been woken by its script
+        // (power on raises e_J1). One with wake 0 can't be woken by sight or
+        // noise, so don't put it back to sleep: it stands, idle.
+        if (this.def.wake === 0 && this.state === 'dormant') this.setState('idle');
+      }
+      return;
+    }
     if (d === 'inactive' || !d || typeof d !== 'object') return;
     this.activate();
     this.pos.set(d.x ?? this.pos.x, 0, d.z ?? this.pos.z);

@@ -20,6 +20,15 @@ const DOOR_COST = 1.5;
 const LINE_OFFSET = 0.26;
 const EDGE_COST = 0.3;  // cells hugging a wall cost a little more, so routes keep off walls
 
+// The face of a door leaf on the side of (x, z), just outside the door tile:
+// a closed leaf blocks line of sight to its own centre, so reach and sight
+// checks aim here instead.
+export function doorFace(d, x, z) {
+  const cx = d.x + 0.5, cz = d.z + 0.5;
+  if (d.axis === 'x') return { x: cx + (x < cx ? -0.55 : 0.55), z: cz };
+  return { x: cx, z: cz + (z < cz ? -0.55 : 0.55) };
+}
+
 class Heap {
   constructor(n) { this.k = new Int32Array(n); this.f = new Float32Array(n); this.n = 0; }
   push(k, f) {
@@ -201,7 +210,9 @@ export class Nav {
     if (start >= 0 && goal >= 0) {
       const cells = this.astar(start, goal, q);
       if (cells) {
-        const exact = this.cellOf(to.x, to.z) === goal ? { x: to.x, z: to.z } : { x: this.cx(goal), z: this.cz(goal) };
+        // `exact`: the caller checked that the agent fits at `to` itself (a
+        // spot between cell centres, e.g. tight against a desk), so end there
+        const exact = opts.exact || this.cellOf(to.x, to.z) === goal ? { x: to.x, z: to.z } : { x: this.cx(goal), z: this.cz(goal) };
         result = this.buildPath(from, cells, exact, q);
       }
     }
@@ -366,9 +377,22 @@ export class Nav {
   // Where to stand to use something at `target` within `reach`: the free cell
   // in reach (with a clear line to it) nearest to `from`, i.e. on the agent's
   // side of a desk rather than behind it. Returns {x, z} or null.
+  //
+  // A door target is sighted at its face on the cell's side (the closed leaf
+  // blocks the ray to its centre). When no cell centre is close enough (an
+  // item at the back of a desk), finer points are tried: any spot where the
+  // agent's circle fits (the world's own collider leaves it in place) and
+  // that sees the target. Such a spot comes back with `exact: true`; pass
+  // that on to find() so the walk ends on it rather than on a cell centre.
   approach(target, from, reach, opts = {}) {
-    const q = { targetDoor: opts.targetDoor || null, block: this.layer(opts.agentR ?? 0.28), allowed: null };
+    const agentR = opts.agentR ?? 0.28;
+    const q = { targetDoor: opts.targetDoor || null, block: this.layer(agentR), allowed: null };
     q.allowed = this.allowedRooms(this.roomAtCell(this.cellOf(from.x, from.z)), q, opts.depth ?? 2);
+    const door = opts.targetDoor || (target.kind === 'door' ? target.door : null);
+    const sees = (x, z) => {
+      if (door) { const f = doorFace(door, x, z); return this.world.lineOfSight(x, z, f.x, f.z); }
+      return this.world.lineOfSight(x, z, target.x, target.z);
+    };
     const i0 = Math.floor(target.x * INV), j0 = Math.floor(target.z * INV);
     const R = Math.ceil(reach * INV) + 1;
     let best = null, bestD = Infinity;
@@ -378,9 +402,28 @@ export class Nav {
       const x = (i + 0.5) * CELL, z = (j + 0.5) * CELL;
       if (Math.hypot(x - target.x, z - target.z) > reach) continue;
       if (this.cellCost(c, q) < 0 || this.door[c] >= 0) continue;
-      if (!this.world.lineOfSight(x, z, target.x, target.z)) continue;
+      if (!sees(x, z)) continue;
       const d = Math.hypot(x - from.x, z - from.z);
       if (d < bestD) { bestD = d; best = { x, z }; }
+    }
+    if (best) return best;
+    // sub-cell search, 0.1 m steps
+    const p = { x: 0, z: 0 };
+    const STEP = 0.1;
+    const n = Math.ceil(reach / STEP);
+    for (let b = -n; b <= n; b++) for (let a = -n; a <= n; a++) {
+      const x = target.x + a * STEP, z = target.z + b * STEP;
+      if (Math.hypot(x - target.x, z - target.z) > reach) continue;
+      const c = this.cellOf(x, z);
+      if (c < 0 || this.room[c] < 0 || !q.allowed[this.room[c]]) continue;
+      p.x = x; p.z = z;
+      this.world.resolve(p, agentR);
+      if (Math.abs(p.x - x) > 1e-3 || Math.abs(p.z - z) > 1e-3) continue;
+      if (!sees(x, z)) continue;
+      // it must also join the walkable grid (a free cell next to it)
+      if (this.nearestFree(x, z, q, 0.75) < 0) continue;
+      const d = Math.hypot(x - from.x, z - from.z);
+      if (d < bestD) { bestD = d; best = { x, z, exact: true }; }
     }
     return best;
   }

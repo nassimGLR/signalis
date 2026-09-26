@@ -545,6 +545,11 @@ export class UI {
 
   // ---------------------------------------------------------------- modal stack
   open(modal) {
+    // One device face at a time: a new keypad, relay or scope replaces any
+    // device still open (it steps back, resolving false) instead of stacking
+    // on it, so a stale device can never sit under the new one or take its
+    // clicks.
+    if (modal.device) for (const m of this.stack.slice()) if (m.device && !m.closed) m.resolve(false);
     return new Promise((resolve) => {
       modal.resolve = (v) => {
         if (modal.closed) return;
@@ -574,7 +579,8 @@ export class UI {
   keys(input) {
     return {
       back: input.back || this._rmb,
-      confirm: input.confirm,
+      // the touch ACT button sends F (see touch.js); on touch it confirms too
+      confirm: input.confirm || (input.lastDevice === 'touch' && input.hit('KeyF')),
       ok: input.hit('Enter', 'Space', 'NumpadEnter') || input.padEdge.has('a'),
       up: input.up, down: input.downNav, left: input.left, right: input.right,
       click: input.mouse.anyClick,
@@ -1983,7 +1989,7 @@ export class UI {
       grid.appendChild(b);
       return b;
     });
-    const modal = { el: root };
+    const modal = { el: root, device: true };
     root.back.addEventListener('click', () => { audio.uiBack(); modal.resolve(false); });
     const paint = () => {
       keyEls.forEach((e, i) => e.classList.toggle('sel', i === sel));
@@ -1991,6 +1997,7 @@ export class UI {
       else if (mode === 'open') drawSeg(g, 'OPEn', '#6fc3c9', '#0c1d1f', cv.width, cv.height);
       else drawSeg(g, (entry + '____').slice(0, 4), '#ff2a3a', '#1e0709', cv.width, cv.height);
       led.className = 'kp-led ' + mode;
+      d.dataset.entry = entry; // read by the harness
     };
     const tapKey = (i) => { const e = keyEls[i]; e.classList.remove('down'); void e.offsetWidth; e.classList.add('down'); };
     const press = (kk) => {
@@ -2046,7 +2053,7 @@ export class UI {
     const LX = [50, 150, 250, 350], PX = [40, 120, 200, 280, 360];
     wires.innerHTML = FLIPS.map((f, i) => f.map((p) => `<path d="M${LX[i]} 70 V${38 - i * 7} H${PX[p]} V0" />`).join('')).join('');
     let sel = 0, solved = false;
-    const modal = { el: root };
+    const modal = { el: root, device: true };
     root.back.addEventListener('click', () => { audio.uiBack(); modal.resolve(false); });
     const lamps = () => {
       const on = [false, false, true, false, false];
@@ -2117,7 +2124,7 @@ export class UI {
     let sel = 0, locked = false;
     const units = [...d.querySelectorAll('.knob-u')];
     const status = $('.sc-lock .st', d), lampEl = $('.sc-lock .lamp', d);
-    const modal = { el: root };
+    const modal = { el: root, device: true };
     root.back.addEventListener('click', () => { audio.uiBack(); modal.resolve(false); });
     const keysOf = ['f', 'a'];
     const render = () => {

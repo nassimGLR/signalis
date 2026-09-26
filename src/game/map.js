@@ -72,7 +72,7 @@ export const LIGHTS = [
   { room: 'C', x: 8.2, z: 24.8, y: 1.3, color: 0xffd29a, i: 1.1, d: 4.5 },
   { room: 'C', x: 10, z: 21.0, y: 1.3, color: 0x9fe8e0, i: 0.5, d: 2.4 },
   // Relay — red emergency wash with an amber lamp on the relay panel
-  { room: 'J', x: 8, z: 30.2, color: 0xff2a1a, i: 2.9, d: 8.5, pulse: 0.35, pulseDepth: 0.3, power: 'emergency' },
+  { room: 'J', x: 8, z: 30.2, color: 0xd8461c, i: 2.3, d: 8.5, pulse: 0.35, pulseDepth: 0.3, power: 'emergency' },
   { room: 'J', x: 8.5, z: 29.0, y: 1.5, color: 0xffb060, i: 0.8, d: 3.2, power: 'emergency', flicker: 0.05 },
   { room: 'J', x: 6, z: 30.5, color: 0xcfe6ff, i: 2.4, d: 8, power: 'main' },
   { room: 'J', x: 11, z: 32, color: 0xcfe6ff, i: 1.8, d: 7, power: 'main', flicker: 0.05 },
@@ -80,11 +80,11 @@ export const LIGHTS = [
   // (the room's cool grey fill, ROOMS.G.amb) so the laser, blood and door
   // lamps still read between them; a vending glow. After power: four bright
   // white lights, clearly a different room.
-  { room: 'G', x: 20, z: 30.9, color: 0xff2a20, i: 2.4, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
-  { room: 'G', x: 27.5, z: 30.9, color: 0xff2a20, i: 2.4, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
-  { room: 'G', x: 35, z: 30.9, color: 0xff2a20, i: 2.4, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
-  { room: 'G', x: 42.5, z: 30.9, color: 0xff2a20, i: 2.2, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
-  { room: 'G', x: 18.6, z: 31.1, y: 1.2, color: 0x8fc4cc, i: 0.8, d: 3.5, flicker: 0.1 },
+  { room: 'G', x: 20, z: 30.9, color: 0xd8461c, i: 1.9, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
+  { room: 'G', x: 27.5, z: 30.9, color: 0xd8461c, i: 1.9, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
+  { room: 'G', x: 35, z: 30.9, color: 0xd8461c, i: 1.9, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
+  { room: 'G', x: 42.5, z: 30.9, color: 0xd8461c, i: 1.8, d: 3.4, pulse: 0.3, pulseDepth: 0.3, power: 'emergency' },
+  { room: 'G', x: 20.8, z: 31.1, y: 1.2, color: 0x8fc4cc, i: 0.8, d: 3.5, flicker: 0.1 },
   { room: 'G', x: 20.5, z: 31, color: 0xe4eeee, i: 2.9, d: 8, power: 'main', flicker: 0.02 },
   { room: 'G', x: 27, z: 31, color: 0xe4eeee, i: 2.9, d: 8, power: 'main' },
   { room: 'G', x: 33.5, z: 31, color: 0xe4eeee, i: 2.9, d: 8, power: 'main', flicker: 0.2 },
@@ -188,7 +188,7 @@ export const PROPS = [
   { room: 'J', t: 'sign', x: 8.5, z: 28.02, y: 2.35, text: 'HIGH VOLTAGE', gloss: 'ВЫСОКОЕ НАПРЯЖЕНИЕ', r: 0, red: true },
 
   // ---------- G: Concourse ----------
-  { room: 'G', t: 'vending', x: 18.6, z: 30.35, r: 0 },
+  { room: 'G', t: 'vending', x: 20.8, z: 30.35, r: 0 },
   { room: 'G', t: 'bench', x: 27, z: 30.4, r: 0 },
   { room: 'G', t: 'bench', x: 39, z: 30.4, r: 0 },
   { room: 'G', t: 'poster', x: 25, z: 30.02, r: 0, kind: 0 },
@@ -399,7 +399,7 @@ export const FIXTURES = [
   { id: 'f_body_B', room: 'B', x: 14.8, z: 44.0, r: 0.9, kind: 'examine', text: 'body' },
   { id: 'f_relay', room: 'J', x: 8.5, z: 28.9, r: 1.0, kind: 'relay' },
   { id: 'f_transformer', room: 'J', x: 5.4, z: 30.5, r: 1.2, kind: 'examine', text: 'transformer' },
-  { id: 'f_vending', room: 'G', x: 18.6, z: 30.9, r: 0.9, kind: 'examine', text: 'vending' },
+  { id: 'f_vending', room: 'G', x: 20.8, z: 30.9, r: 0.9, kind: 'examine', text: 'vending' },
   { id: 'f_plan_G', room: 'G', x: 28.4, z: 30.55, r: 0.8, kind: 'examine', text: 'plan_02', plan: '02' },
   { id: 'f_locker_D', room: 'D', x: 26.2, z: 25.9, r: 1.0, kind: 'locker_keycard' },
   { id: 'f_bunks_D', room: 'D', x: 19.6, z: 23.6, r: 0.9, kind: 'examine', text: 'bunk' },

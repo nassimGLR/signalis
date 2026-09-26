@@ -5,7 +5,7 @@
 //     sits is rolled per save within 90–160 kHz
 //   · two fragments of Overseer Ostrov on fixed frequencies (the second only
 //     comes in clearly from the east wing)
-//   · the array BEACON, her voice, strongest near the array
+//   · the ARRAY QUEUE carrier, strongest near the array
 //   · the UNDERTONE, anything below 40 kHz: static, a counting voice, and it
 //     stirs up every Hollow in earshot. The security bulletin forbids it.
 //
@@ -114,9 +114,12 @@ export class Receiver {
     if (ctx.sector) this.sector = ctx.sector;
     const I = ctx.input;
     if (I && this.has && this.power && ctx.playing) {
-      const t = I.tune;
+      // Q / E tune only from the keyboard (touch sends ACT as its own key);
+      // the wheel and the pad D-pad always tune
+      const kb = I.lastDevice === 'kb';
+      const t = kb ? I.tune : (I.mouse.wheel ? Math.sign(I.mouse.wheel) : I.padEdge.has('right') ? 1 : I.padEdge.has('left') ? -1 : 0);
       if (t) { this.step(t * NOTCH); this.holdT = 0; }
-      const held = (I.down('KeyE') ? 1 : 0) - (I.down('KeyQ') ? 1 : 0);
+      const held = kb ? (I.down('KeyE') ? 1 : 0) - (I.down('KeyQ') ? 1 : 0) : 0;
       if (held) { this.holdT += dt; if (this.holdT > 0.3) this.step(held * SWEEP * dt); } else this.holdT = 0;
     }
     if (!this.on) {

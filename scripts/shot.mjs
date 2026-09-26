@@ -76,7 +76,34 @@ const gameWait = async (sec, ms = 12000) => {
   const t0 = await g(() => window.__game.time);
   await until((t) => window.__game.time >= t, ms, t0 + sec);
 };
-const tp = (x, z, yaw = 0) => g(([x, z, yaw]) => window.__game.debugTeleport(x, z, yaw), [x, z, yaw]);
+// Wait for an outcome that takes game time (a stomp, a burn, a revive): true
+// once fn holds, false once `sec` of game time has gone by without it. On a
+// busy machine the game runs at a few fps with dt capped, so game time runs
+// far slower than wall time; `ms` is only a safety net (menus stop the clock).
+const untilG = async (fn, sec, arg, ms = 240000) => {
+  const t0 = await g(() => window.__game.time);
+  const w0 = Date.now();
+  while (Date.now() - w0 < ms) {
+    if (await g(fn, arg)) return true;
+    if (await g((t) => window.__game.time > t, t0 + sec)) return !!(await g(fn, arg));
+    await sleep(100);
+  }
+  return false;
+};
+// Teleport, but only to a spot a player could stand on: the world's own
+// collider must leave a Wren-sized circle where it is (no standing inside a
+// table), on a room tile or an open door.
+const tp = async (x, z, yaw = 0) => {
+  const ok = await g(([x, z, yaw]) => {
+    const G = window.__game, w = G.world, p = { x, z };
+    w.resolve(p, 0.28);
+    const t = w.tile(Math.floor(x), Math.floor(z));
+    const floor = typeof t === 'string' || (t && typeof t === 'object' && t.open);
+    G.debugTeleport(x, z, yaw);
+    return floor && Math.hypot(p.x - x, p.z - z) < 0.02 ? true : { x: +p.x.toFixed(2), z: +p.z.toFixed(2), floor: !!floor };
+  }, [x, z, yaw]);
+  if (ok !== true) check(`teleport spot (${x}, ${z}) is somewhere she can stand`, false, 'pushed to ' + JSON.stringify(ok));
+};
 const park = () => page.mouse.move(PARK.x, PARK.y);
 const clickAt = async (x, y) => { if (touchMode) await page.touchscreen.tap(x, y); else await page.mouse.click(x, y); };
 const screenOf = (x, y, z) => g(([x, y, z]) => window.__game.worldToScreen(x, y, z), [x, y, z]);
@@ -129,17 +156,27 @@ const foe = (id) => g((id) => {
 const fight = async (ids, spots, maxShots = 30) => {
   const look = () => g((ids) => {
     const G = window.__game, P = G.player, w = G.inv.weapon();
-    return {
-      hp: P.hp, dead: P.dead, rounds: G.inv.rounds(), loaded: w ? w.loaded : 0,
-      foes: G.enemies.filter((e) => e.alive && e.state !== 'dormant' && (ids.includes(e.id) || (e.threatening && Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z) < 10)))
-        .map((e) => ({ id: e.id, s: e.state, x: e.pos.x, z: e.pos.z, d: Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z) })),
-    };
+    const foes = G.enemies.filter((e) => e.alive && e.state !== 'dormant' && (ids.includes(e.id) || (e.threatening && Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z) < 10)))
+      .map((e) => ({ id: e.id, s: e.state, x: e.pos.x, z: e.pos.z, d: Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z) }));
+    // bodies of ours on the floor with nothing standing within 4 m of them
+    const bodies = G.enemies.filter((e) => ids.includes(e.id) && e.finishable
+      && !foes.some((f) => Math.hypot(f.x - e.pos.x, f.z - e.pos.z) < 4)).map((e) => e.id);
+    return { hp: P.hp, dead: P.dead, rounds: G.inv.rounds(), loaded: w ? w.loaded : 0, foes, bodies };
   }, ids);
   let shots = 0;
   await page.keyboard.down('Space');
   for (let n = 0; n < 90 && shots < maxShots; n++) {
     const s = await look();
-    if (s.dead || !s.foes.length) break;
+    if (s.dead) break;
+    // finish a body as soon as it's down (its revive clock is already
+    // running), before the next one gets close
+    if (s.bodies.length) {
+      await page.keyboard.up('Space'); await frames(2);
+      for (const id of s.bodies) await finishOne(id);
+      await page.keyboard.down('Space'); await frames(2);
+      continue;
+    }
+    if (!s.foes.length) break;
     if (s.rounds <= 0) break;
     if (s.foes.some((f) => f.d < 1.7)) {
       let best = spots[0], bd = -1;
@@ -163,24 +200,34 @@ const fight = async (ids, spots, maxShots = 30) => {
 };
 // Finish every downed body in `ids` (F: FINISH); a stomped one whose core
 // says it will rise again gets a flare (F: BURN) when she has one.
-const finishAll = async (ids) => {
-  for (const id of ids) {
-    for (let k = 0; k < 4; k++) {
-      await settle(8000); // F may have picked up something lying beside the body
-      const e = await foe(id);
-      await until(() => !window.__game.player.action, 3000);
-      if (e.fin) {
-        await besideBody(id); await frames(3);
-        await key('KeyF');
-        await until((id) => window.__game.enemies.find((q) => q.id === id).state === 'stomped', 4000, id);
-        await frames(4);
-      } else if (e.s === 'stomped' && e.will && e.flares > 0) {
-        await besideBody(id); await frames(3);
-        await key('KeyF');
-        await until((id) => window.__game.enemies.find((q) => q.id === id).state === 'ash', 7000, id);
-      } else break;
-    }
+const finishOne = async (id) => {
+  for (let k = 0; k < 4; k++) {
+    await settle(8000); // F may have picked up something lying beside the body
+    const e = await foe(id);
+    await untilG(() => !window.__game.player.action, 2);
+    if (e.fin) {
+      await besideBody(id); await frames(3);
+      await key('KeyF');
+      await untilG((id) => window.__game.enemies.find((q) => q.id === id).state === 'stomped', 3, id);
+      await frames(4);
+    } else if (e.s === 'stomped' && e.will && e.flares > 0) {
+      await besideBody(id); await frames(3);
+      await key('KeyF');
+      await untilG((id) => window.__game.enemies.find((q) => q.id === id).state === 'ash', 6, id);
+    } else break;
   }
+};
+const finishAll = async (ids) => { for (const id of ids) await finishOne(id); };
+const gone = (ids) => g((ids) => ids.every((id) => ['stomped', 'ash', 'dead'].includes(window.__game.enemies.find((e) => e.id === id).state)), ids);
+// Fight and finish until every one of `ids` is stomped or ash (a body can
+// get up again mid-fight; then it is fought again). Returns shots fired.
+const clearOut = async (ids, spots) => {
+  let shots = 0;
+  for (let pass = 0; pass < 4 && !(await gone(ids)); pass++) {
+    shots += await fight(ids, spots);
+    await finishAll(ids);
+  }
+  return shots;
 };
 
 // ---------------------------------------------------------------- boot
@@ -353,11 +400,10 @@ if (scenario === 'play') {
   await sleep(600);
   await snap('hollow-rise');
   const G_SPOTS = [[25.5, 31], [29, 30.6], [32.5, 31.4], [36, 30.6]];
-  let shotsFired = await fight(['e_G1'], G_SPOTS);
+  let shotsFired = await fight(['e_G1'], G_SPOTS, 2);
   await snap('shooting');
-  shotsFired += await fight(['e_G1', 'e_G2'], G_SPOTS);
+  shotsFired += await clearOut(['e_G1', 'e_G2'], G_SPOTS);
   await step('concourse Hollows down (J fires)', await g(() => ['e_G1', 'e_G2'].every((id) => !window.__game.enemies.find((e) => e.id === id).alive)));
-  await finishAll(['e_G1', 'e_G2']);
   await step('both finished (F: FINISH)', await g(() => ['e_G1', 'e_G2'].every((id) => ['stomped', 'ash'].includes(window.__game.enemies.find((e) => e.id === id).state))));
   await snap('finished');
   await log('after-fight');
@@ -366,9 +412,8 @@ if (scenario === 'play') {
   await tp(33.5, 30.3, N); await use(); await settle();
   await step('security door (keycard)', await until(() => window.__game.world.doors.dHG.open, 3000));
   await tp(33.5, 28.3, N); await settle();
-  shotsFired += await fight(['e_H1'], [[31, 23.6], [36.2, 23.6], [31, 27.9], [36.3, 27.4]]);
+  shotsFired += await clearOut(['e_H1'], [[31, 23.6], [36.2, 23.6], [31, 27.9], [36.3, 27.4]]);
   await step('security Hollow down', await g(() => !window.__game.enemies.find((e) => e.id === 'e_H1').alive));
-  await finishAll(['e_H1']);
   await tp(31.0, 24.5, W); await use(); await settle();
   await step('fuse', (await facts()).items.includes('fuse'));
   await tp(32.2, 23.5, N); await use(); await settle();
@@ -398,9 +443,8 @@ if (scenario === 'play') {
   await sleep(3500); await settle();
   await snap('power-on');
   // the power wakes the one in the relay room
-  shotsFired += await fight(['e_J1'], [[5.6, 29.3], [8.5, 30.8], [11.2, 29.3], [6.5, 32.6]]);
+  shotsFired += await clearOut(['e_J1'], [[5.6, 29.3], [8.5, 30.8], [11.2, 29.3], [6.5, 32.6]]);
   await step('relay Hollow down', await g(() => !window.__game.enemies.find((e) => e.id === 'e_J1').alive));
-  await finishAll(['e_J1']);
   await tp(6.4, 32.0, S); await use(); await settle();
   await step('prong (J)', (await facts()).items.includes('prong'));
   // through the bulkhead into the east wing
@@ -411,14 +455,13 @@ if (scenario === 'play') {
   // the one down the corridor: shoot it from the south end (well out of
   // earshot of the Warden at the north end)
   await tp(46.9, 40.8, N); await settle();
-  shotsFired += await fight(['e_K2'], [[46.6, 43.9], [47.3, 42.2], [46.7, 39.5], [47.2, 37.5]]);
+  shotsFired += await clearOut(['e_K2'], [[46.6, 43.9], [47.3, 42.2], [46.7, 39.5], [47.2, 37.5]]);
   await step('corridor Hollow down', await g(() => !window.__game.enemies.find((e) => e.id === 'e_K2').alive));
-  await finishAll(['e_K2']);
   // the Warden by the array door: an arc prong, then finish it
   await g(() => { const G = window.__game; G.setEquipped('tool', G.inv.slots.findIndex((q) => q && q.id === 'prong')); });
   await tp(46.8, 15.5, N); await frames(2);
   await key('KeyC');
-  await step('prong knocks the Warden down', await until(() => window.__game.enemies.find((e) => e.id === 'e_K1').state === 'knockdown', 3000));
+  await step('prong knocks the Warden down', await untilG(() => window.__game.enemies.find((e) => e.id === 'e_K1').state === 'knockdown', 2));
   await snap('warden-prong');
   await finishAll(['e_K1']);
   await step('Warden finished', await g(() => ['stomped', 'ash'].includes(window.__game.enemies.find((e) => e.id === 'e_K1').state)));
@@ -728,6 +771,77 @@ if (scenario === 'mouse') {
   check('release clears the ready state', !c5b.aim.active && c5b.mode === 'idle', JSON.stringify(c5b));
   await g(() => window.__game.enemies.forEach((e) => e.kill()));
 
+  // T4b: a locked door is clicked like any other door. The keypad door, up
+  // close (the shut leaf blocks sight of its own centre) and from across the
+  // corridor: the bracket says what trying it will do, and it is tried.
+  const tryLocked = async (x, z, yaw, doorId, label) => {
+    await tp(x, z, yaw);
+    await gameWait(0.9);
+    const d = await g((id) => window.__game.world.doors[id], doorId);
+    await moveTo(d.x + 0.5, 1.25, d.z + 0.5);
+    const h = await ctl();
+    await page.mouse.down(); await sleep(60); await page.mouse.up();
+    const tried = await untilG(() => !!window.__game.ui.dialogState || !!window.__game.ui.modal, 15);
+    return { h, tried };
+  };
+  const up = await tryLocked(14.5, 31.5, W, 'dJB');
+  check('locked door hover says ENTER CODE', up.h.hover && up.h.hover.id === 'dJB' && up.h.hover.label === 'ENTER CODE', JSON.stringify(up.h.hover));
+  const kpUp = up.tried && await settle() === 'modal' && await g(() => !!document.querySelector('.kp'));
+  check('click the keypad door in reach: the keypad opens', kpUp, JSON.stringify({ tried: up.tried, ctl: await ctl() }));
+  await key('Escape'); await until(() => !window.__game.ui.modal, 4000); await settle();
+  const far = await tryLocked(14.8, 34.5, N, 'dJB');
+  const kpFar = far.tried && await settle() === 'modal' && await g(() => !!document.querySelector('.kp'));
+  check('click the keypad door from across the corridor: she walks up and tries it', kpFar, JSON.stringify({ tried: far.tried, p: await P() }));
+  await snap('locked-door');
+  await key('Escape'); await until(() => !window.__game.ui.modal, 4000); await settle();
+  // the keycard door, holding the keycard: it opens
+  await g(() => { const G = window.__game; if (!G.inv.has('keycard')) G.inv.add('keycard', 1); });
+  await tp(33.5, 31.2, N);
+  await gameWait(0.9);
+  await moveTo(33.5, 1.25, 29.5);
+  const hk = await ctl();
+  check('keycard door hover says USE KEYCARD', hk.hover && hk.hover.id === 'dHG' && hk.hover.label === 'USE KEYCARD', JSON.stringify(hk.hover));
+  await page.mouse.down(); await sleep(60); await page.mouse.up();
+  check('click the keycard door holding the keycard: it opens', await untilG(() => window.__game.world.doors.dHG.open, 12), JSON.stringify({ ctl: await ctl(), p: await P() }));
+  await settle();
+
+  // T3b: every pickup and fixture has a spot she can click it from (nav
+  // approach: a cell centre, or failing that a finer spot she fits on)
+  const audit = await g(() => {
+    const G = window.__game, w = G.world, nav = G.controls.nav;
+    const vis = w.visible; w.visible = null;
+    const cands = [...G.pickupCandidates(), ...G.fixtureCandidates()];
+    w.visible = vis;
+    const bad = [], fine = [];
+    for (const c of cands) {
+      const r = w.rooms[c.room];
+      const from = { x: (r.x0 + r.x1 + 1) / 2, z: (r.z0 + r.z1 + 1) / 2 };
+      const spot = nav.approach(c, from, c.r + 0.3, { agentR: 0.28 });
+      if (!spot) bad.push(c.id);
+      else if (spot.exact) fine.push(c.id);
+    }
+    return { n: cands.length, bad, fine };
+  });
+  console.log('click-reach audit', JSON.stringify(audit));
+  check('every pickup and fixture is click-reachable', audit.n > 20 && !audit.bad.length, JSON.stringify(audit));
+  // …and the tight ones really work by mouse: rounds at the back of a desk
+  const tight = async (id, x, z, yaw) => {
+    await tp(x, z, yaw);
+    await gameWait(0.9);
+    const c = await g((id) => { const p = window.__game.pickups.find((q) => q.def.id === id); return p ? { x: p.def.x, y: (p.def.y ?? 0) + 0.12, z: p.def.z } : null; }, id);
+    if (!c) return 'gone';
+    await moveTo(c.x, c.y, c.z);
+    const h = await ctl();
+    await page.mouse.down(); await sleep(60); await page.mouse.up();
+    const ok = await untilG((id) => window.__game.state.taken.has(id), 12, id);
+    await settle();
+    return ok ? 'taken' : JSON.stringify({ hover: h.hover, ctl: await ctl(), p: await P() });
+  };
+  const t1 = await tight('p_ammo_H', 34.2, 27.2, EAST);
+  check('click rounds at the back of the security desk: taken', t1 === 'taken', t1);
+  const t2 = await tight('p_letter_D', 21.5, 28.4, N);
+  check('click the letter on the crew table: taken', t2 === 'taken', t2);
+
   // T7: F interacts with the thing she faces
   await tp(4.4, 41.0, W);
   await park();
@@ -805,12 +919,15 @@ if (scenario === 'mech') {
   for (let i = 0; i < 12; i++) { glows.push((await E('e_G1')).glow); await sleep(150); }
   check('revive tell: its core pulses faintly (0.08–0.20)', Math.min(...glows) >= 0.07 && Math.max(...glows) <= 0.21 && Math.max(...glows) - Math.min(...glows) > 0.01, glows.join(','));
   await snap('down');
+  // watch it in game time: up to 31 s after it went down (a wall-clock
+  // budget fails whenever the machine is slow, not when the game is wrong)
   let shiver = 0, rose = false;
   const tW = Date.now();
-  while (Date.now() - tW < 60000) {
+  while (Date.now() - tW < 400000) {
     const q = await E('e_G1');
     shiver = Math.max(shiver, q.rev);
     if (q.s === 'rising') { rose = true; break; }
+    if (await g((t) => window.__game.time > t, tDown + 31.5)) break;
     await sleep(120);
   }
   const tRose = await g(() => window.__game.time);
@@ -845,7 +962,7 @@ if (scenario === 'mech') {
   const stomped = await actionSeen('stomp');
   await gameWait(0.2);
   await snap('stomp');
-  await until(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'stomped', 4000);
+  await untilG(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'stomped', 3);
   const s1 = await E('e_G1');
   check('F plays the stomp and finishes it', stomped && s1.s === 'stomped', JSON.stringify({ stomped, s: s1.s }));
   check('finishing costs no ammo', (await g(() => window.__game.inv.rounds())) === r0);
@@ -873,7 +990,7 @@ if (scenario === 'mech') {
   await page.mouse.move(Math.round(bp.x), Math.round(bp.y), { steps: 3 }); await sleep(200); await frames(3);
   const hov = await g(() => window.__game.ctl.hover);
   await page.mouse.down(); await sleep(60); await page.mouse.up();
-  const clickStomp = await until(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'stomped', 20000);
+  const clickStomp = await untilG(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'stomped', 15);
   check('clicking a body walks over and FINISHes it', hov && hov.id === 'h_e_G1' && hov.label === 'FINISH' && clickStomp, JSON.stringify({ hov, clickStomp }));
   await park();
   await g(() => { window.__game.ui.settings.faceCursor = false; });
@@ -887,10 +1004,10 @@ if (scenario === 'mech') {
   const f0 = await g(() => window.__game.inv.count('flare'));
   await actIdle(); await key('KeyC');
   const flared = await actionSeen('toolFlare');
-  await until(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'burning', 4000);
+  await untilG(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'burning', 3);
   await gameWait(0.8);
   await snap('burning');
-  const burnt = await until(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'ash', 8000);
+  const burnt = await untilG(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'ash', 6);
   check('C with the flare burns a body (toolFlare → burning → ash), one flare used', flared && burnt && (await g(() => window.__game.inv.count('flare'))) === f0 - 1, JSON.stringify({ flared, burnt }));
   await gameWait(0.3);
   await snap('ash');
@@ -950,7 +1067,7 @@ if (scenario === 'mech') {
   await page.keyboard.down('ShiftLeft'); await page.keyboard.down('KeyD');
   await until(() => window.__game.player.speed > 3, 3000);
   const tRun = await g(() => window.__game.time);
-  const inv = await until(() => window.__game.enemies.find((q) => q.id === 'e_E1').log.some((l) => l[1] === 'investigate'), 4000);
+  const inv = await untilG(() => window.__game.enemies.find((q) => q.id === 'e_E1').log.some((l) => l[1] === 'investigate'), 2);
   const tInv = await g(() => window.__game.time);
   await page.keyboard.up('KeyD'); await page.keyboard.up('ShiftLeft');
   const n1 = await E('e_E1');
@@ -965,7 +1082,7 @@ if (scenario === 'mech') {
   check('walking 5 m behind it does not', !n2.log.length, JSON.stringify(n2.log));
   // seen from the front: a notice beat before the chase
   await stage('e_E1', { x: 23, z: 34.0, yaw: 0, state: 'idle', wren: [23.2, 39.0, N] });
-  await until(() => window.__game.enemies.find((q) => q.id === 'e_E1').log.includes ? window.__game.enemies.find((q) => q.id === 'e_E1').log.some((l) => l[1] === 'chase') : false, 4000);
+  await untilG(() => window.__game.enemies.find((q) => q.id === 'e_E1').log.some((l) => l[1] === 'chase'), 3);
   const n3 = await E('e_E1');
   check('seeing her: a notice beat, then the chase', n3.log[0] === 'notice' && n3.log[1] === 'chase', JSON.stringify(n3.log));
   await g(() => window.__game.enemies.find((q) => q.id === 'e_E1').kill());
@@ -975,7 +1092,7 @@ if (scenario === 'mech') {
   await page.keyboard.down('Space'); await gameWait(0.4);
   await key('KeyJ');
   await page.keyboard.up('Space');
-  await until(() => window.__game.enemies.find((q) => q.id === 'e_E2').log.some((l) => l[1] === 'rising'), 3000);
+  await untilG(() => window.__game.enemies.find((q) => q.id === 'e_E2').log.some((l) => l[1] === 'rising'), 2);
   check('a shot wakes a dormant Hollow 5.5 m away', (await E('e_E2')).log.includes('rising'), JSON.stringify(await E('e_E2')));
   await g(() => window.__game.enemies.find((q) => q.id === 'e_E2').kill());
   // out of sight 8 s: it gives up and investigates where she was (pathing there with nav)
@@ -990,7 +1107,7 @@ if (scenario === 'mech') {
 
   // ---- variants: the Rusher lunges; the Warden's plate soaks frontal fire
   await stage('e_E3', { x: 23, z: 34.4, yaw: 0, state: 'chase', seen: [23.1, 38.0], wren: [23.1, 38.0, N] });
-  const lunged = await until(() => window.__game.enemies.find((q) => q.id === 'e_E3').log.some((l) => l[1] === 'lunge'), 4000);
+  const lunged = await untilG(() => window.__game.enemies.find((q) => q.id === 'e_E3').log.some((l) => l[1] === 'lunge'), 3);
   await gameWait(0.45);
   await snap('lunge');
   check('the Rusher lunges from ~3.6 m', lunged, JSON.stringify(await E('e_E3')));
@@ -1019,7 +1136,7 @@ if (scenario === 'mech') {
   const p0 = await g(() => window.__game.inv.count('prong'));
   await actIdle(); await key('KeyC');
   const pr = await actionSeen('toolProng');
-  await until(() => window.__game.enemies.find((q) => q.id === 'e_K1').state === 'knockdown', 3000);
+  await untilG(() => window.__game.enemies.find((q) => q.id === 'e_K1').state === 'knockdown', 2);
   await gameWait(0.3);
   await snap('prong');
   const k1 = await E('e_K1');
@@ -1027,7 +1144,7 @@ if (scenario === 'mech') {
   await besideBody('e_K1', 1);
   await gameWait(0.2);
   await actIdle(); await key('KeyF');
-  check('a knocked-down Hollow can be finished', await until(() => window.__game.enemies.find((q) => q.id === 'e_K1').state === 'stomped', 4000), JSON.stringify(await E('e_K1')));
+  check('a knocked-down Hollow can be finished', await untilG(() => window.__game.enemies.find((q) => q.id === 'e_K1').state === 'stomped', 3), JSON.stringify(await E('e_K1')));
   check('touch TOOL button shows with a tool equipped (body.has-tool)', await g(() => document.body.classList.contains('has-tool')));
   check('aim readout carries the tool count', await g(() => { const G = window.__game; return G.toolReadout() === 'PRONG ×1'; }), await g(() => window.__game.toolReadout()));
 
@@ -1038,11 +1155,12 @@ if (scenario === 'mech') {
   await give('flare', 1);
   await g(() => { const G = window.__game; G.setEquipped('tool', G.inv.slots.findIndex((s) => s && s.id === 'flare')); });
   await actIdle(); await key('KeyC');
-  await until(() => window.__game.enemies.find((q) => q.id === 'e_G1').stats.hits > 0, 3000);
+  await untilG(() => window.__game.enemies.find((q) => q.id === 'e_G1').stats.hits > 0, 2.5);
   const fl = await E('e_G1');
   const flDiag = await g(() => { const G = window.__game; return { eq: G.equippedId('tool'), flares: G.inv.count('flare'), tgt: !!G.flareTarget(), act: G.player.action, busy: G.ui.busy, sc: G.scripting, inv: G.inv.slots.map((q) => q && q.id + ':' + q.qty) }; });
   await g(() => window.__game.debugTeleport(30, 31, Math.PI / 2));
-  const ashed = await until(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'ash', 8000);
+  // the burn (HOLLOW.burnT) takes seconds of game time: wait in game time
+  const ashed = await untilG(() => window.__game.enemies.find((q) => q.id === 'e_G1').state === 'ash', 6);
   check('flare on a Hollow in reach: 45 damage, then it burns out to ash', fl.hp <= 10.5 && ashed, JSON.stringify({ fl, ashed, flDiag }));
   await g(() => { const G = window.__game; G.enemies.forEach((e) => { if (e.alive) e.kill(); }); });
 
@@ -1136,6 +1254,12 @@ if (scenario === 'mech') {
   await until(() => window.__game.mode === 'play' && !window.__game.fadeAnim, 10000);
   const l1 = await g(() => { const G = window.__game; return { g1: G.enemies.find((q) => q.id === 'e_G1').state, g2: G.enemies.find((q) => q.id === 'e_G2').state, e3: G.enemies.find((q) => q.id === 'e_E3').state, rx: G.radio.has }; });
   check('a v1 save still loads (dead stays dead; new Hollows at their posts)', v1 && l1.g1 === 'dead' && l1.g2 === 'idle' && l1.e3 === 'idle', JSON.stringify(l1));
+  // the relay-room Hollow, woken by the power (wake 0: no sight or noise can
+  // wake it), is saved standing: after a load it must not be asleep again
+  await g(() => { const G = window.__game; G.state.powered = true; const e = G.enemies.find((q) => q.id === 'e_J1'); e.activate(); e.setState('chase'); G.saveGame(); G.loadGame(); });
+  await until(() => window.__game.mode === 'play' && !window.__game.fadeAnim, 10000);
+  const j1 = await g(() => { const e = window.__game.enemies.find((q) => q.id === 'e_J1'); return { s: e.state, active: e.active, saved: JSON.parse(localStorage.getItem('lethe7-save')).enemies.e_J1 }; });
+  check('a Hollow the power woke is awake again after a load', j1.active && j1.s !== 'dormant', JSON.stringify(j1));
 }
 
 // ---------------------------------------------------------------- touch: tap to go / tap to use
@@ -1169,6 +1293,17 @@ if (scenario === 'touch') {
   await snap('used');
   await settle(15000, { x: Math.round(d.x), y: Math.round(d.y) });
   await snap('game');
+  // with the receiver on, ACT still interacts (it sends F; E would tune)
+  await g(() => { const G = window.__game; G.radio.has = true; G.radio.power = true; G.state.flags.radio = true; });
+  await tp(4.2, 41.95, S);
+  await gameWait(0.9);
+  const f0 = await g(() => window.__game.radio.freq);
+  const act = await g(() => { const b = document.querySelector('#touch .t-btn.act'); if (!b || !b.getClientRects().length) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, code: b.dataset.code }; });
+  check('touch ACT button is showing', !!act, 'no ACT button');
+  if (act) await page.touchscreen.tap(Math.round(act.x), Math.round(act.y));
+  const took = await untilG(() => window.__game.state.taken.has('p_sealant_A'), 4);
+  check('receiver on: touch ACT takes the item and does not tune', took && (await g(() => window.__game.radio.freq)) === f0, JSON.stringify({ took, act, f0, f1: await g(() => window.__game.radio.freq) }));
+  await settle(15000, { x: Math.round(d.x), y: Math.round(d.y) });
 }
 
 await finish();

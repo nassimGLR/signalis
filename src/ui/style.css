@@ -82,7 +82,7 @@ kbd {
   75% { -webkit-mask-image: var(--m12); mask-image: var(--m12); }
   100% { -webkit-mask-image: none; mask-image: none; }
 }
-.out { -webkit-mask-size: 8px 8px; mask-size: 8px 8px; animation: dissolveOut 420ms steps(1) forwards !important; }
+.out { -webkit-mask-size: 8px 8px; mask-size: 8px 8px; animation: dissolveOut 420ms steps(1) forwards !important; pointer-events: none !important; }
 
 /* ---------------------------------------------------------------- panels */
 .panel { position: relative; background: rgba(12, 14, 16, 0.97); border: 1px solid var(--line); }
@@ -195,7 +195,7 @@ body.modal-open #toasts, body.modal-open #hint, body.modal-open #sector, body.mo
 
 /* critical-condition static */
 #lowhp { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; opacity: 0; pointer-events: none; }
-#lowhp.on { opacity: 0.06; }
+#lowhp.on { opacity: 0; } /* low condition shows in the picture itself (uCritical), not as a noise overlay */
 
 /* ---------------------------------------------------------------- boot */
 #boot { position: fixed; inset: 0; z-index: 60; background: #000; display: flex; align-items: center; justify-content: center; cursor: pointer; }

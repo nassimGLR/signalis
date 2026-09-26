@@ -85,7 +85,18 @@ function helpers(page, prefix) {
       await page.mouse.click(vw / 2, 200); await wait(160);
     }
   };
-  return { g, wait, until, shot, at, click, rclick, drag, typedOut, clearDialogs };
+  // two animation frames: the UI reads mouse edges once per game frame, so
+  // two clicks inside one slow frame would merge into one
+  const frames = () => g(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  // a device face powers on with a scaleY transform; measure its keys only
+  // once it has finished (at a few fps it can still be mid-way after 400 ms)
+  const settled = (sel) => until((sel) => { const e = document.querySelector(sel); return !!e && getComputedStyle(e).transform === 'none' && e.getAnimations().every((a) => a.playState !== 'running'); }, 6000, sel);
+  // click through a passive screen (memory, typed) until it closes
+  const clickThrough = async (x, y, max = 60) => {
+    for (let i = 0; i < max && await g(() => !!window.__game.ui.modal); i++) { await page.mouse.click(x, y); await frames(); await wait(120); }
+    return until(() => !window.__game.ui.modal, 8000);
+  };
+  return { g, wait, until, shot, at, click, rclick, drag, typedOut, clearDialogs, frames, settled, clickThrough };
 }
 
 // ---------------------------------------------------------------- desktop 1280×720
@@ -93,7 +104,7 @@ async function desktop() {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
   hook(page, errors);
-  const { g, wait, until, shot, at, click, rclick, drag, typedOut, clearDialogs } = helpers(page, '');
+  const { g, wait, until, shot, at, click, rclick, drag, typedOut, clearDialogs, frames, settled, clickThrough } = helpers(page, '');
   await page.goto(URL);
   await until(() => !!window.__game, 8000);
   await wait(500);
@@ -343,23 +354,32 @@ async function desktop() {
 
   // keypad (device face) by mouse
   await g(() => { window.__kp = undefined; window.__game.ui.keypad('7304').then((v) => { window.__kp = v; }); });
-  await until(() => !!document.querySelector('.kp'), 4000); await wait(400);
-  for (const d of '730') await click('.kp .kp-key', d, { after: 160 });
+  await until(() => !!document.querySelector('.kp'), 4000); await settled('.kp');
+  for (const d of '730') { await click('.kp .kp-key', d, { after: 160 }); await frames(); }
   await wait(300);
+  check('keypad: each click enters a digit', await until(() => document.querySelector('.kp').dataset.entry === '730', 3000), 'entry ' + await g(() => document.querySelector('.kp').dataset.entry));
+  check('one device face at a time', await g(() => document.querySelectorAll('.dev-screen').length === 1), 'device screens ' + await g(() => document.querySelectorAll('.dev-screen').length));
   await shot('keypad');
   await click('.kp .kp-key', '4');
   check('keypad by mouse opens with the right code', await until(() => window.__kp === true, 4000), 'keypad result ' + await g(() => window.__kp));
   await g(() => { window.__kp = undefined; window.__game.ui.keypad('7304').then((v) => { window.__kp = v; }); });
-  await until(() => !!document.querySelector('.kp'), 4000); await wait(400);
-  for (const d of '1111') await click('.kp .kp-key', d, { after: 120 });
+  await until(() => !!document.querySelector('.kp'), 4000); await settled('.kp');
+  for (const d of '1111') { await click('.kp .kp-key', d, { after: 120 }); await frames(); }
   await wait(450);
   await shot('keypad-deny');
   await rclick();
   check('keypad RMB backs out (false)', await until(() => window.__kp === false, 3000), 'keypad result ' + await g(() => window.__kp));
 
+  // a second device face replaces the first instead of stacking on it
+  await g(() => { window.__k1 = undefined; window.__k2 = undefined; const ui = window.__game.ui; ui.keypad('7304').then((v) => { window.__k1 = v; }); ui.keypad('7304').then((v) => { window.__k2 = v; }); });
+  const stackOk = await until(() => window.__k1 === false && document.querySelectorAll('.dev-screen').length === 1, 3000);
+  check('a new device face replaces a stale one', stackOk, JSON.stringify(await g(() => ({ k1: window.__k1, n: document.querySelectorAll('.dev-screen').length }))));
+  await rclick();
+  await until(() => window.__k2 === false && !window.__game.ui.modal, 3000);
+
   // relay: click levers A and C
   await g(() => { window.__rl = undefined; window.__relayState = { levers: [false, false, false, false] }; window.__game.ui.relay(window.__relayState).then((v) => { window.__rl = v; }); });
-  await until(() => !!document.querySelector('.rl'), 4000); await wait(400);
+  await until(() => !!document.querySelector('.rl'), 4000); await settled('.rl');
   await click('.lever .track', '', { after: 400 });
   await shot('relay');
   const levers = await g(() => [...document.querySelectorAll('.lever .track')].map((e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }));
@@ -368,13 +388,21 @@ async function desktop() {
 
   // wave: drag the frequency knob down 3 steps, wheel amplitude up 2
   await g(() => { window.__wv = undefined; window.__game.ui.wave().then((v) => { window.__wv = v; }); });
-  await until(() => !!document.querySelector('.sc'), 4000); await wait(400);
+  await until(() => !!document.querySelector('.sc'), 4000); await settled('.sc');
   const knobs = await g(() => [...document.querySelectorAll('.knob')].map((e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }));
-  await page.mouse.move(knobs[0].x, knobs[0].y); await page.mouse.down();
-  for (let i = 1; i <= 10; i++) { await page.mouse.move(knobs[0].x, knobs[0].y + i * 5); await wait(40); }
-  await page.mouse.up();
+  const kv = () => g(() => [...document.querySelectorAll('.sc .kv')].map((e) => +e.textContent));
+  // drag the frequency knob down (14 px a step) until it reads 04; each
+  // drag is checked, so a press eaten by a slow frame is simply retried
+  for (let tries = 0; tries < 4 && (await kv())[0] > 4; tries++) {
+    await page.mouse.move(knobs[0].x, knobs[0].y); await frames(); await page.mouse.down(); await frames();
+    const steps = (await kv())[0] - 4;
+    for (let i = 1; i <= steps * 3 + 1; i++) { await page.mouse.move(knobs[0].x, knobs[0].y + i * 5); await wait(40); }
+    await page.mouse.up(); await frames();
+  }
+  // and wheel the amplitude up to 03, a notch at a time
   await page.mouse.move(knobs[1].x, knobs[1].y); await wait(100);
-  await page.mouse.wheel(0, -100); await wait(150); await page.mouse.wheel(0, -100); await wait(400);
+  for (let tries = 0; tries < 6 && (await kv())[1] < 3; tries++) { await page.mouse.wheel(0, -100); await frames(); await wait(150); }
+  await wait(300);
   await shot('wave');
   await click('.sc .btn.tx');
   check('wave by mouse (drag + wheel) locks and transmits', await until(() => window.__wv === true, 3000), 'wave result ' + await g(() => window.__wv) + ' vals ' + await g(() => [...document.querySelectorAll('.kv')].map((e) => e.textContent).join('/')));
@@ -402,14 +430,12 @@ async function desktop() {
   await until(() => !!document.querySelector('.mem-screen'), 4000);
   await wait(2600);
   await shot('memory');
-  for (let i = 0; i < 14 && await g(() => !!window.__game.ui.modal); i++) { await page.mouse.click(640, 360); await wait(250); }
-  check('memory clicks through', await until(() => !window.__game.ui.modal, 4000), 'memory still open');
+  check('memory clicks through', await clickThrough(640, 360), 'memory still open');
   await g(() => { window.__game.ui.memory('handover'); });
   check('memory alias handover', await until(() => !!document.querySelector('.mem-screen'), 3000), 'handover memory failed');
   await wait(2200);
   await shot('memory-handover');
-  for (let i = 0; i < 16 && await g(() => !!window.__game.ui.modal); i++) { await page.mouse.click(640, 360); await wait(250); }
-  await until(() => !window.__game.ui.modal, 4000);
+  await clickThrough(640, 360);
 
   // pause
   await wait(300);

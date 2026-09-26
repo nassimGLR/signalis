@@ -465,7 +465,7 @@ export class Audio {
     this.click(0.05, 2600, 0.2);
   }
 
-  // Cautery flare: a strike, then a sizzling burn for `seconds`.
+  // Scuttle wick: a strike, then a sizzling burn for `seconds`.
   flare(seconds = 3) {
     if (!this.enabled) return;
     const ctx = this.ctx, t = this.now(), end = t + seconds;
@@ -490,7 +490,7 @@ export class Audio {
     [n, lfo, roar].forEach((x) => { x.start(t); x.stop(end + 0.05); });
   }
 
-  // Arc prong discharge: a mains buzz torn by crackle, then a snap.
+  // Shunt cartridge surge: a mains buzz torn by crackle, then a snap.
   arc() {
     if (!this.enabled) return;
     const ctx = this.ctx, t = this.now(), end = t + 0.5;

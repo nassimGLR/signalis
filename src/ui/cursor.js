@@ -466,8 +466,15 @@ export class Cursor {
     g.save();
     g.globalAlpha = r.alpha ?? 1;
     const top = Math.round(r.y - 12 * k);
-    this.label(String(r.loaded).padStart(2, '0'), r.x, top, r.loaded > 0 ? this.col.bone : this.col.redHi, 1, fontMono(k), 0.5 * k);
-    this.label('/' + String(r.reserve).padStart(2, '0'), r.x, top + 15 * k, this.col.grey, 1, fontMonoS(k), 0.5 * k);
+    const a = String(r.loaded).padStart(2, '0'), b = '/' + String(r.reserve).padStart(2, '0');
+    // a dark plate behind it, so it reads over a lit poster or a red wall
+    const w = Math.max(this.textWidth(a, fontMono(k), 0.5 * k), this.textWidth(b, fontMonoS(k), 0.5 * k),
+      r.extra ? this.textWidth(r.extra, fontMonoS(k), 0.5 * k) : 0);
+    const h = (r.extra ? 41 : 28) * k;
+    g.fillStyle = 'rgba(7,8,10,.72)';
+    g.fillRect(Math.round(r.x - 4 * k), top - 3 * k, Math.round(w + 8 * k), h);
+    this.label(a, r.x, top, r.loaded > 0 ? this.col.bone : this.col.redHi, 1, fontMono(k), 0.5 * k);
+    this.label(b, r.x, top + 15 * k, this.col.bone, 0.7, fontMonoS(k), 0.5 * k);
     if (r.extra) this.label(r.extra, r.x, top + 28 * k, this.col.boneDim, 1, fontMonoS(k), 0.5 * k);
     g.restore();
   }

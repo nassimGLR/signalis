@@ -3,10 +3,12 @@
 // kind: weapon | ammo | heal | key | memory | tool. Optional fields the
 // Custodian OS reads: `mag` (magazine size), `inspect` (a detail found on
 // TURN OVER). Healing: `heal` hit points, over `hot` seconds (0 = at once).
-// Tools are equipped in the OS and used with C / Mouse 4 / pad LB:
-//   prong — ARC PRONG: knocks every Hollow within `radius` flat (finishable).
-//   flare — CAUTERY FLARE: burns a body on the floor within `radius` to ash
-//           (it never gets up), or sets a Hollow in reach alight.
+// Tools are equipped in the OS and used with C / Mouse 4 / pad LB. The ids
+// stay 'prong' and 'flare' (saves, map pickups and pose names use them);
+// everything the player sees is the name below.
+//   prong — SHUNT CARTRIDGE: knocks every Hollow within `radius` flat (finishable).
+//   flare — SCUTTLE WICK: burns a body on the floor within `radius` to ash
+//           (it never gets up). It does nothing to one still standing.
 export const ITEMS = {
   pistol: {
     name: 'P-17 SIDEARM', kind: 'weapon', stack: 1, mag: 8,
@@ -18,9 +20,9 @@ export const ITEMS = {
     desc: '9×19 caseless rounds for the P-17. Count them. Always count them.',
   },
   sealant: {
-    name: 'SEALANT SPRAY', kind: 'heal', heal: 40, hot: 8, stack: 3,
-    desc: 'Polymer sealant for hull breaches and chassis damage. Restores some integrity as it sets, over a few seconds. It stings, if I let it.',
-    inspect: 'SHAKE WELL. DO NOT APPLY TO OPTICS. The nozzle is crusted grey.',
+    name: 'SPLICE WRAP', kind: 'heal', heal: 40, hot: 8, stack: 3,
+    desc: 'A roll of self-fusing conductive wrap. Bind the damage and the chassis knits along it: some integrity back over a few seconds.',
+    inspect: 'PULL · STRETCH · WRAP. Down to its last few turns.',
   },
   nanite: {
     name: 'NANITE AMPOULE', kind: 'heal', heal: 100, stack: 1,
@@ -28,14 +30,14 @@ export const ITEMS = {
     inspect: 'The seal is stamped with a lot number and a date eleven hundred cycles gone.',
   },
   prong: {
-    name: 'ARC PRONG', kind: 'tool', stack: 4, radius: 1.8,
-    desc: 'A single-use discharge prong for clearing jammed relays. Anything standing close enough goes down. Get to them before they get up.',
-    inspect: 'Two copper tines, a thumb trigger, a cartridge the size of a finger. HOLD AWAY FROM BODY.',
+    name: 'SHUNT CARTRIDGE', kind: 'tool', stack: 2, radius: 1.8,
+    desc: 'A breaker-shunt cartridge for clearing a fouled bus. Slam it on the deck plate and the surge drops anything standing near. One use. Get to them before they get up.',
+    inspect: 'BREAKER SHUNT · 1 DISCHARGE · FEET CLEAR OF PLATE.',
   },
   flare: {
-    name: 'CAUTERY FLARE', kind: 'tool', stack: 3, radius: 1.5, damage: 45,
-    desc: 'A magnesium flare for sealing coolant lines. Laid on a fallen Hollow it burns it down to nothing, and nothing gets up. It will light one in reach, too.',
-    inspect: 'STRIKE CAP · BURN TIME 3 s. Someone has written on the tube in marker: FOR THE ONES THAT KEEP COUNTING.',
+    name: 'SCUTTLE WICK', kind: 'tool', stack: 5, radius: 1.5,
+    desc: 'A magnesium scuttling wick, for burning out contaminated cable runs. Laid on a fallen Hollow it leaves ash, and ash does not get up.',
+    inspect: 'PULL TAB · BURN 3 s. Someone has written on the sleeve in marker: FOR THE ONES THAT KEEP COUNTING.',
   },
   keycard: {
     name: 'SECURITY KEYCARD', kind: 'key', stack: 1,
@@ -51,7 +53,7 @@ export const ITEMS = {
   },
   obol: {
     name: 'OBOL', kind: 'key', stack: 1,
-    desc: 'An old silver coin, worn almost smooth. On one side, a boat. On the other, someone has scratched: FOR W.',
+    desc: 'An old silver coin, worn almost smooth. On one side, a boat. On the other, a stamp: ARRAY — MANUAL.',
   },
 };
 

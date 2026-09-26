@@ -13,8 +13,8 @@ export const INTRO = [
   { t: 'MAINTENANCE SLEEP .... INTERRUPTED' },
   { t: 'WAKE AUTHORISED BY ... ██████████', cls: 'red' },
   { t: '', pause: 900 },
-  { t: 'Someone signed my wake order.', cls: 'voice' },
-  { t: 'I don\'t remember who.', cls: 'voice' },
+  { t: 'A wake order is clipped to my pod.', cls: 'voice' },
+  { t: 'Its last line says: YOU ARE ON SHIFT.', cls: 'voice' },
 ];
 
 // type: 'circular' (official notice) | 'note' (personal, handwritten) |
@@ -31,7 +31,7 @@ Rev. 7 — posted in every cryo bay
 1. Maintain the station until relieved.
 2. Obey the Overseer. In the absence of the Overseer, obey the Directive.
 3. Do not listen to the Undertone. If you can hear it, report to Medical at once.
-4. You are not permitted to remember what the Overseer has asked you to forget.
+4. Report nothing that has not been approved. Unapproved reports will be corrected.
 
 Compliance is care.
 THE STATION ENDURES.`,
@@ -62,15 +62,11 @@ It is playing the only station we still trust.
     where: 'Crew Quarters',
     body: `Ilka —
 
-The relief ship is late again. Eleven cycles now. The crew have stopped counting. I haven't.
+The relief ship is late again. Eleven cycles now. I've stopped putting it in the reports, because the reports come back corrected. "Delayed" becomes "scheduled". "Three crew unresponsive" becomes "three crew resting".
 
-Wren fixed the hydroponics pump today with a spoon and a hairpin. She hums when she works. I never taught her that, and I don't know who did. When I asked her, she said it was "the song from the window."
+Wren fixed the hydroponics pump today with a spoon and a hairpin. Then she logged it: the spoon, the hairpin, the minute she finished. She writes everything down exactly as it happened. She is the only one aboard who still does.
 
-I told her to stop.
-She stopped.
-She does everything I tell her.
-
-If they don't come, I've decided what I'll do. I won't let her hear it. Whatever it costs me.
+If they don't come, I'll put her somewhere safe and leave her the log. Someone should finish it honestly.
 
 Kiss the kids. Tell them the planet is beautiful. It is. That's the worst part.
 
@@ -122,21 +118,20 @@ It is not good for them, and it is not good for you.
     title: 'MEDICAL RECORD — WREN-3',
     where: 'Medical Bay',
     body: `SUBJECT: Custodian unit WREN-3
-MEMORY REINITIALISATIONS TO DATE: 14
+AUDIO FILTER REPLACEMENTS TO DATE: 14
 
-All fourteen requested by Overseer M. Ostrov.
-Reason given, every time:
-    "She was starting to hear it."
+Reason logged each time:
+    "Unit reports hearing the Undertone as words."
 
 NOTES:
-Unit retains procedural memory across wipes (repairs, routes, habits).
-Unit also retains one recurring image that survives every wipe:
-a window, a planet, and a hand on her shoulder.
-We cannot locate where it is stored.
+Every other unit that hears it starts to repeat it.
+WREN-3 does not repeat it. She writes it down.
+Her transcripts are always the same: our own call sign,
+a date, and the word MAYDAY, worn almost smooth.
 
-Recommendation: leave it.
-I don't think it is hurting her.
-I think it might be the only thing that isn't.`,
+Recommendation: stop replacing her filters.
+I think she is the only one of us who can listen to it
+without answering.`,
   },
   observation: {
     type: 'note',
@@ -180,18 +175,17 @@ I only want one of us to stay dry.`,
     where: 'Archive',
     body: `Cycle 10,002.
 
-The crew are gone. Not dead — gone into the sound. They sit in the dark rooms and count. I am the only one left who still answers to her own name.
+The crew are gone. Not dead — gone into the sound. They sit in the dark rooms and count along with it.
 
-I signed Wren over to sleep one last time. I dated her wake order for the day the relief ship came.
-It isn't coming. I think I've known for a thousand cycles. So I have changed the date.
+It took me a thousand cycles to understand the Undertone. It isn't the planet. It's us: our own distress call, bounced off the rings and handed back to us until it stopped meaning anything. Everyone who listens gives it a little more of themselves.
 
-I rewired the array so the beacon plays my voice instead of the Undertone. If she ever wakes, she'll follow it. It's the one signal on this station that won't lie to her.
+Head office never received a true word from this station. I have written the report they should have had. It is in the array's send queue. I can't send it: the array only knows the loop now, and I can't stand in that room long enough to break it.
 
-I've left my coin on the desk. I'm not crossing anywhere.
+Wren can. She hears it and doesn't answer.
 
-Wren — I'm sorry.
-I asked you to forget me fourteen times.
-Please don't do it a fifteenth.
+I've put her to sleep and set her wake for when the power has run down far enough to be safe. My coin opens the array door. I won't be needing it.
+
+Wren — you're on shift. Write it down as it is.
 
 — Mara`,
   },
@@ -200,7 +194,7 @@ Please don't do it a fifteenth.
 // Examine text. Arrays are shown as consecutive lines.
 export const EXAMINE = {
   wake: ['Cold.', 'The pod is open. Nobody is here to say good morning.'],
-  pod_open: ['My pod. The gel still holds my shape.', 'A wake order is clipped to the lid, dated by hand. The signature is scratched out.'],
+  pod_open: ['My pod. The gel still holds my shape.', 'A wake order is clipped to the lid, signed M. OSTROV. Under the signature: YOU ARE ON SHIFT.'],
   pod_closed: ['Frost on the glass. Someone inside.', 'Not moving. Hasn\'t moved for a long time.'],
   locker_empty: ['Empty lockers. Name tags peeled away.'],
   locker_taken: ['The locker is empty now.'],
@@ -235,7 +229,7 @@ export const EXAMINE = {
   power_on: ['Somewhere far off, the station exhales.', 'Main power restored.'],
   keypad_wrong: ['ACCESS DENIED.'],
   keypad_ok: ['ACCESS GRANTED.'],
-  enter_M: ['Her voice. It\'s coming from the array.'],
+  enter_M: ['The array. The counting is loudest here.', 'Under it, something is waiting to be sent.'],
   box_note: ['A pneumatic locker. The tube coughs, and everything I sent is waiting inside.'],
   save_deck: ['A tape backup deck. The reels are threaded and still.', 'READY.'],
   plan_01: ['A sector plan. HABITATION — WEST.', 'Cryo, the relay room, this quiet room, the corridor that joins them.'],
@@ -244,8 +238,8 @@ export const EXAMINE = {
   plan_04: ['A sector plan. ARRAY.', 'One room. Everything on this deck was built to feed it.'],
   // mechanics (D2)
   receiver: ['A receiver module in a charging cradle. It clips onto my harness.', 'The dial is marked in the station band. Below forty, someone has scored it with a red line.'],
-  prong: ['An arc prong. One charge, then it\'s scrap.'],
-  flare: ['A cautery flare. Whatever it touches stays down.'],
+  prong: ['A shunt cartridge. One surge, then it\'s scrap.'],
+  flare: ['A scuttle wick. Whatever it\'s laid on stays down.'],
   rx_numbers: ['Numbers. The same four, over and over.', 'Seven, three, zero, four.'],
   rx_undertone: ['That isn\'t static. It\'s counting.', 'I should turn it off.'],
 };
@@ -270,22 +264,22 @@ export const RADIO = {
   },
   fragB: {
     f: 173,
-    label: 'OSTROV · PERSONAL',
-    text: 'WREN. IF THIS REACHES YOU, YOU ARE AWAKE AND I AM NOT THERE TO SAY GOOD MORNING. THE ROOMS THAT COUNT WILL ASK YOU TO SIT DOWN WITH THEM. DON\'T. WALK EAST. THE ARRAY WILL BE SINGING IN MY VOICE.',
+    label: 'OSTROV · SHIFT LOG',
+    text: 'SHIFT LOG, OSTROV. HANDOVER TO CUSTODIAN WREN-3. OUTSTANDING: ONE REPORT, UNSENT, ARRAY QUEUE. THE ROOMS THAT COUNT WILL ASK YOU TO SIT DOWN WITH THEM. DON\'T. THE ARRAY IS EAST. END OF HANDOVER.',
     lines: [
-      { who: 'M', t: 'Wren. If this reaches you, you\'re awake, and I\'m not there to say good morning.' },
-      { who: 'M', t: 'I\'m sorry about the cold.' },
-      { who: 'M', t: 'The rooms that count will ask you to sit down with them. Don\'t. Walk east.' },
-      { who: 'M', t: 'The array will be singing in my voice.' },
+      { who: 'M', t: 'Shift log, Ostrov. Handover to custodian Wren-3.' },
+      { who: 'M', t: 'Outstanding: one report, unsent. It\'s in the array queue.' },
+      { who: 'M', t: 'The rooms that count will ask you to sit down with them. Don\'t. The array is east.' },
+      { who: 'M', t: 'End of handover.' },
     ],
   },
   beacon: {
     f: 196.5,
-    label: 'ARRAY BEACON',
-    text: '... WREN ... FOLLOW THIS ... IT\'S ME ... WREN ... FOLLOW THIS ...',
+    label: 'ARRAY QUEUE',
+    text: 'LETHE-7 ARRAY · SEND QUEUE: 1 · OSTROV — FULL REPORT · STATUS: HELD · CARRIER LOST · AWAITING OPERATOR',
     lines: [
-      { who: 'M', t: 'Wren. Follow this. It\'s me.' },
-      { who: 'M', t: 'Wren.' },
+      { who: '', t: 'A machine voice, under the counting: SEND QUEUE, ONE. FULL REPORT. HELD.' },
+      { who: '', t: 'AWAITING OPERATOR.' },
     ],
   },
   undertone: {
@@ -301,41 +295,43 @@ export const MEMORIES = {
     art: 'window',
     title: 'MEMORY — THE WINDOW',
     lines: [
-      { who: '', t: 'A hand on my shoulder. Warm, for a station this cold.' },
-      { who: 'M', t: 'Look. That\'s where the sound comes from.' },
-      { who: 'M', t: 'Don\'t ever listen to it. Alright?' },
-      { who: 'W', t: 'Then what should I listen to?' },
-      { who: 'M', t: 'Me. Just me.' },
+      { who: '', t: 'A hand on my shoulder. The first round of my first shift.' },
+      { who: 'M', t: 'Station rule. No one watches the planet alone.' },
+      { who: 'W', t: 'Why?' },
+      { who: 'M', t: 'Because it talks back. And people start writing down what it says instead of what happened.' },
+      { who: 'M', t: 'You write down what happened. Always. Even when they correct it.' },
     ],
   },
-  // The cryo-pod memory: Mara handing Wren over to sleep. (Its old key,
+  // The cryo-pod memory: Mara handing the shift over to Wren. (Its old key,
   // 'promise', stays as an alias below so older callers still resolve it.)
   handover: {
     art: 'promise',
     title: 'MEMORY — THE HANDOVER',
     lines: [
-      { who: '', t: 'Cold light. A form on a clipboard, two signatures long.' },
-      { who: 'M', t: 'Handover. I sign you into sleep, and the station keeps you.' },
-      { who: 'W', t: 'And the second line?' },
-      { who: 'M', t: 'Whoever wakes you signs that one.' },
-      { who: 'W', t: 'Will it be you?' },
-      { who: 'M', t: '...Lie back. Count down from ten.' },
+      { who: '', t: 'Cold light. A clipboard. A shift handover, two signatures long.' },
+      { who: 'M', t: 'Keys. Duty log. One report, unsent.' },
+      { who: 'W', t: 'Where are you going?' },
+      { who: 'M', t: 'Off shift.' },
+      { who: 'M', t: 'Lie back. When you wake up, the station is yours. Write it down as it is.' },
     ],
   },
 };
 MEMORIES.promise = MEMORIES.handover;
 
 export const ENDING = [
-  { t: 'The array turns its face from the planet,', pause: 300 },
-  { t: 'toward the dark between the stars.', pause: 900 },
+  { t: 'The array lets go of the loop.', pause: 300 },
+  { t: 'For the first time in a thousand cycles, the station says something new.', pause: 900 },
   { t: '' },
-  { t: 'This is custodian unit Wren-3, Lethe-7 Deep Survey Station.', cls: 'voice' },
-  { t: 'The Overseer is dead. The crew are gone.', cls: 'voice' },
-  { t: 'I am still here.', cls: 'voice', pause: 900 },
+  { t: 'LETHE-7 DEEP SURVEY STATION. FULL REPORT FOLLOWS.', cls: 'voice' },
+  { t: 'Crew thirty-one. Lost to the Undertone, thirty-one.', cls: 'voice' },
+  { t: 'The Undertone is our own distress call. Do not answer it.', cls: 'voice' },
+  { t: 'Do not send relief without shielding.', cls: 'voice' },
+  { t: 'Overseer M. Ostrov, deceased, cycle 10,002. This report is hers.', cls: 'voice', pause: 900 },
+  { t: 'Custodian unit Wren-3 remains on station.', cls: 'voice', pause: 600 },
   { t: '' },
-  { t: 'I remember.', cls: 'voice big', pause: 1800 },
+  { t: 'Until relieved.', cls: 'voice big', pause: 1800 },
   { t: '' },
-  { t: 'SIGNAL SENT ......... CYCLE 11,406', cls: 'dim' },
+  { t: 'REPORT SENT ......... CYCLE 11,406', cls: 'dim' },
   { t: 'REPLIES ............. 0', cls: 'dim', pause: 1600 },
   { t: 'REPLIES ............. 1', cls: 'red', pause: 1200 },
 ];

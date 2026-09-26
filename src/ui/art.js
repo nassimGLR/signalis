@@ -59,13 +59,14 @@ export function drawIcon(id) {
       fill('#e2dccc', 14, 25, 20, 6);
       fill('#2a2a2a', 16, 27, 16, 2);
       break;
-    case 'sealant':
-      fill('#8a9294', 17, 14, 14, 26);
-      fill('#b4bcbc', 17, 14, 4, 26);
-      fill('#b02028', 17, 22, 14, 8);
-      fill('#e2dccc', 20, 24, 8, 4);
-      fill('#3a3e42', 20, 8, 8, 6);
-      fill('#1a1a1c', 28, 9, 6, 3);
+    case 'sealant': // SPLICE WRAP: a roll of tape with a loose tail
+      g.fillStyle = '#2b3a3c'; g.beginPath(); g.arc(22, 22, 14, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#3b4f52'; g.beginPath(); g.arc(22, 22, 13, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#cfc9ba'; g.beginPath(); g.arc(22, 22, 7, 0, Math.PI * 2); g.fill();
+      g.clearRect(19, 19, 6, 6);
+      fill('#3b4f52', 22, 34, 18, 5);
+      fill('#e0c85a', 22, 34, 18, 1);
+      fill('#e8e2d4', 25, 36, 10, 1);
       break;
     case 'nanite':
       fill('#304048', 20, 8, 8, 6);

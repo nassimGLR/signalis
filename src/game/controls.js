@@ -8,7 +8,7 @@
 //   → [camera] → lateUpdate(dt)
 // and paused(dt) on frames where the game is paused.
 import * as THREE from 'three';
-import { Nav } from './nav.js';
+import { Nav, doorFace } from './nav.js';
 import { PLAYER_R } from './player.js';
 import { Cursor } from '../ui/cursor.js';
 import { audio } from '../engine/audio.js';
@@ -39,6 +39,7 @@ export const FIXTURE_VERB = {
 };
 
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
 
 export class Controls {
   constructor(game) {
@@ -364,6 +365,7 @@ export class Controls {
       this.cancel();
       this.mode = 'hold';
       this.holdPinned = 0;
+      this.holdRoute = null;
     }
     if (clicked && !aiming && !this.act) this.onClick(dbl, runKey, mouseMode);
 
@@ -382,16 +384,25 @@ export class Controls {
     } else if (this.mode === 'hold') {
       const gp = this.groundAt(0);
       move = { x: 0, y: 0 };
-      // pressed into a wall (little of the push turns into motion) → stand
-      // there until the pointer moves, instead of creeping along the wall
-      if (movedNow) this.holdPinned = 0;
+      // Pressed into something (little of the push turns into motion) for
+      // 0.25 s: route round it on the nav grid toward the pointer while the
+      // button stays down. With no way on (a wall with the pointer in the
+      // dark beyond it, a shut door) she stands, facing the pointer.
+      const detour = this.holdPinned >= 0.25;
+      if (movedNow && !detour) this.holdPinned = 0;
       else if (P.speed > 0.5 && P.moveSpeed < 0.35 * P.speed) this.holdPinned = (this.holdPinned || 0) + dt;
       else if (this.holdPinned < 0.25) this.holdPinned = 0;
       if (gp) {
         const vx = gp.x - P.pos.x, vz = gp.z - P.pos.z;
         const d = Math.hypot(vx, vz);
-        if (d > HOLD_DEADZONE && !(this.holdPinned >= 0.25)) { move = { x: vx / d, y: vz / d }; run = runKey || (S.runFar && d > RUN_FAR); }
-        else if (d > 0.05) cmd.faceDir = { x: vx, y: vz };
+        if (d <= HOLD_DEADZONE) { this.holdRoute = null; if (d > 0.05) cmd.faceDir = { x: vx, y: vz }; }
+        else if (!(this.holdPinned >= 0.25)) { this.holdRoute = null; move = { x: vx / d, y: vz / d }; run = runKey || (S.runFar && d > RUN_FAR); }
+        else {
+          const step = this.holdDetour(dt, gp, movedNow);
+          if (step === 'direct') { this.holdPinned = 0; move = { x: vx / d, y: vz / d }; run = runKey || (S.runFar && d > RUN_FAR); }
+          else if (step) { move = step; run = runKey || (S.runFar && d > RUN_FAR); }
+          else cmd.faceDir = { x: vx, y: vz };
+        }
       }
     } else if (this.mode === 'path') {
       const r = this.followPath(dt);
@@ -421,6 +432,40 @@ export class Controls {
     cmd.aim = aiming;
     cmd.aimDir = aimDir;
     return cmd;
+  }
+
+  // Hold-walk detour: the route toward the pointer's ground point, refreshed
+  // every 0.3 s (0.1 s while the pointer moves). Returns a unit move toward
+  // the next waypoint, 'direct' when the way is a straight, unsnapped line
+  // again, or null when there is no way on.
+  holdDetour(dt, gp, movedNow) {
+    const P = this.game.player;
+    const h = this._hold || (this._hold = { t: 0 });
+    h.t -= dt;
+    if (!this.holdRoute || h.t <= 0 || (movedNow && h.t < 0.2)) {
+      h.t = 0.3;
+      this.holdRoute = this.nav.find(P.pos, gp, { agentR: PLAYER_R, snap: 1.0 }) || [];
+      const r = this.holdRoute;
+      if (r.length === 1 && !r[0].door && Math.hypot(r[0].x - gp.x, r[0].z - gp.z) < 0.3) return 'direct';
+      // a route that ends no nearer the pointer (it's in a wall or the dark
+      // beyond one) is no way on: stand, don't shuffle along the wall
+      const end = r[r.length - 1];
+      if (end && Math.hypot(end.x - gp.x, end.z - gp.z) > Math.hypot(P.pos.x - gp.x, P.pos.z - gp.z) - HOLD_DEADZONE) r.length = 0;
+    }
+    const r = this.holdRoute;
+    while (r.length) {
+      const w = r[0];
+      const shut = w.door && !(w.door.open && w.door.t >= 0.8);
+      if (!shut && Math.hypot(w.x - P.pos.x, w.z - P.pos.z) < ARRIVE_EPS) { r.shift(); continue; }
+      break;
+    }
+    if (!r.length) return null;
+    const w = r[0];
+    const vx = w.x - P.pos.x, vz = w.z - P.pos.z, d = Math.hypot(vx, vz);
+    // a shut door on the way: walk up to it and stand (holding never opens doors)
+    if (w.door && !(w.door.open && w.door.t >= 0.8) && d < 0.3) return null;
+    if (d < 1e-3) return null;
+    return { x: vx / d, y: vz / d };
   }
 
   // ------------------------------------------------------------------ aim
@@ -468,6 +513,10 @@ export class Controls {
       }
       A.stickHeld = true;
     } else A.stickHeld = false;
+    // the box and the laser must agree: when another Hollow stands in the
+    // line of fire, the shot will hit that one, so the lock moves to it
+    const blocker = P.laserHit;
+    if (A.lock && blocker && blocker !== A.lock && blocker.alive && blocker.active) A.lock = blocker;
     // drop a lock that went down or out of range
     if (A.lock && (!A.lock.alive || !A.lock.active || Math.hypot(A.lock.pos.x - P.pos.x, A.lock.pos.z - P.pos.z) > 13)) {
       A.lock = A.mouse ? null : G.nearestTarget(null);
@@ -501,12 +550,24 @@ export class Controls {
   }
 
   // ------------------------------------------------------------------ clicks
+  // Line of sight from (x, z) to where a thing is used from. A closed door
+  // blocks the ray to its own centre, so a door is tested at its face on
+  // that side instead.
+  useLos(t, x, z) {
+    const w = this.world;
+    if (t.kind === 'door' && t.door) {
+      const f = doorFace(t.door, x, z);
+      return w.lineOfSight(x, z, f.x, f.z);
+    }
+    return w.lineOfSight(x, z, t.x, t.z);
+  }
+
   onClick(dbl, runKey, mouseMode) {
     const G = this.game, P = G.player;
     const run = runKey || dbl;
     const t = this.hover;
     if (t) {
-      if (t.inReach && G.world.lineOfSight(P.pos.x, P.pos.z, t.x, t.z)) { this.startAct(t); return; }
+      if (t.inReach && this.useLos(t, P.pos.x, P.pos.z)) { this.startAct(t); return; }
       if (!mouseMode) { this.cursor.flashNo(); return; }
       this.goToTarget(t, run);
       return;
@@ -547,7 +608,7 @@ export class Controls {
     const targetDoor = t.kind === 'door' ? t.door : null;
     const spot = this.nav.approach(t, P.pos, t.r + REACH_PAD - 0.05, { agentR: PLAYER_R, targetDoor });
     const ok = this.goToPoint(spot || { x: t.x, z: t.z }, run, {
-      targetDoor, snap: Math.max(1, t.r + 0.3), noMarker: true,
+      targetDoor, snap: Math.max(1, t.r + 0.3), noMarker: true, exact: !!(spot && spot.exact),
     });
     if (!ok) { this.cursor.flashNo(); return; }
     this.pending = t;
@@ -561,7 +622,7 @@ export class Controls {
     const t = this.pending;
     if (t) {
       const d = Math.hypot(t.x - P.pos.x, t.z - P.pos.z);
-      if (d <= t.r + REACH_PAD - 0.1 && G.world.lineOfSight(P.pos.x, P.pos.z, t.x, t.z)) {
+      if (d <= t.r + REACH_PAD - 0.1 && this.useLos(t, P.pos.x, P.pos.z)) {
         this.startAct(t);
         return out;
       }
@@ -616,7 +677,9 @@ export class Controls {
         if (moved < 0.05) {
           if (!s.repathed && this.dest) {
             const dest = this.dest, pend = this.pending, runPath = this.runPath;
-            const p = this.nav.find(P.pos, dest, { agentR: PLAYER_R, targetDoor: pend && pend.kind === 'door' ? pend.door : null });
+            // dest is the last waypoint of a route already found, so it's a
+            // spot she fits on: end exactly there again
+            const p = this.nav.find(P.pos, dest, { agentR: PLAYER_R, targetDoor: pend && pend.kind === 'door' ? pend.door : null, exact: true });
             if (p && p.length) { this.path = p; this.pending = pend; this.runPath = runPath; this.stuck = { t: 0, x: P.pos.x, z: P.pos.z, repathed: true }; return out; }
           }
           this.cancel(true);

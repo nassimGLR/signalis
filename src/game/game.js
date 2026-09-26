@@ -252,7 +252,7 @@ export class Game {
         e.restore(st);
         const rr = this.world.roomAt(e.pos.x, e.pos.z);
         if (rr) e.room = rr;
-      } else if (def.spawn && this.state.powered) e.activate();
+      } else if (def.spawn && this.state.powered) e.restore('alive'); // woken already (see Enemy.restore)
       e.onHitPlayer = () => { this.damageFlash = 1; this.shake = 0.35; this.glitchPulse = 0.8; };
       return e;
     });
@@ -884,10 +884,22 @@ export class Game {
       if (d.open) continue;
       if (vis && !vis.has(d.a) && !vis.has(d.b)) continue;
       if (!d.cand) d.cand = { id: d.id, kind: 'door', door: d, x: d.x + 0.5, y: 1.25, z: d.z + 0.5, r: 1.0, size: 1.0, run: () => this.useDoor(d) };
-      d.cand.label = d.locked ? 'EXAMINE' : 'OPEN';
+      d.cand.label = d.locked ? this.lockedVerb(d) : 'OPEN';
       out.push(d.cand);
     }
     return out;
+  }
+
+  // What trying a locked door will do, so the bracket says it before the click.
+  lockedVerb(d) {
+    switch (d.lock) {
+      case 'code': return 'ENTER CODE';
+      case 'keycard': return this.inv.has('keycard') ? 'USE KEYCARD' : 'LOCKED';
+      case 'obol': return this.inv.has('obol') ? 'PAY FARE' : 'LOCKED';
+      case 'breaker': return this.state.flags.breaker ? 'OPEN' : 'LOCKED';
+      case 'power': return this.state.powered ? 'OPEN' : 'LOCKED';
+      default: return 'LOCKED';
+    }
   }
 
   // Facing-nearest interactable in reach (keyboard / pad rules): { label, run } | null.
@@ -944,13 +956,13 @@ export class Game {
       await this.playMemory('window');
       return;
     }
-    if (d.item === 'obol') lines.push('A silver coin with a boat on it. It was left here on purpose.', 'FOR W.');
+    if (d.item === 'obol') lines.push('A silver coin with a boat on it. It was left here on purpose.', 'Stamped on the back: ARRAY — MANUAL.');
     const kind = ITEMS[d.item] && ITEMS[d.item].kind;
     if (kind === 'tool' && !this.state.flags['seen_' + d.item]) { this.state.flags['seen_' + d.item] = true; lines.push(...EXAMINE[d.item]); }
     await this.ui.say(lines, 'WREN');
     if (kind === 'tool') {
       this.hint('tool', 'Tools go in the TOOL clip: EQUIP one in the inventory · [C] or Mouse 4 uses it');
-      if (d.item === 'flare') this.hint('burn', 'A flare laid on a fallen Hollow burns it for good · stand over the body and press [C], or click it');
+      if (d.item === 'flare') this.hint('burn', 'A wick laid on a fallen Hollow burns it for good · stand over the body and press [C], or click it');
     }
   }
 
@@ -1157,10 +1169,10 @@ export class Game {
   async finale() {
     if (this.state.flags.ending) return this.ui.say(EXAMINE.console_done, 'WREN');
     await this.ui.say([
-      { who: '', t: 'The console is looping a recording. A woman\'s voice, very tired, counting slowly — no. Not counting.' },
-      { who: '', t: 'Saying a name. Over and over. Mine.' },
-      { who: 'WREN', t: 'She left this here so I would come.' },
-      { who: 'WREN', t: 'To answer, I have to replace it with my own signal.' },
+      { who: '', t: 'The console is looping the station\'s own call sign, over and over, worn down to a hum. Up close it is almost words.' },
+      { who: '', t: 'SEND QUEUE, ONE. OSTROV — FULL REPORT. HELD: CARRIER LOST.' },
+      { who: 'WREN', t: 'She wrote it. She just couldn\'t stay in here long enough to send it.' },
+      { who: 'WREN', t: 'Break the loop. Put a clean carrier on the array. Send it.' },
     ]);
     const ok = await this.ui.wave();
     if (!ok) return;
@@ -1239,7 +1251,7 @@ export class Game {
   }
 
   // Bodies on the floor: FINISH (red) stomps a downed or knocked-down Hollow
-  // (free); once it is finished, BURN lays a cautery flare on it if she
+  // (free); once it is finished, BURN lays a scuttle wick on it if she
   // carries one. (The tool key burns a body straight away: that is a choice.)
   hollowCandidates() {
     const vis = this.world.visible, out = [];
@@ -1307,24 +1319,24 @@ export class Game {
     this.particles.burst(new THREE.Vector3(b.x, 0.3, b.z), 0x2a0406, 12, 1.8);
     this.glitchPulse = Math.max(this.glitchPulse, 0.14);
     this.state.flags.stomped = (this.state.flags.stomped || 0) + 1;
-    if (e.willRevive) this.hint('tell', 'Its core still pulses: it will get up again, later. A CAUTERY FLARE [C] burns a body for good.');
+    if (e.willRevive) this.hint('tell', 'Its core still pulses: it will get up again, later. A SCUTTLE WICK [C] burns a body for good.');
   }
 
   applyFlare(e) {
     const P = this.player;
     let t = e;
-    const reach = (q) => (q.alive ? Math.hypot(q.pos.x - P.pos.x, q.pos.z - P.pos.z) <= 1.8 : q.burnable && Math.hypot(this.bodyPos(q).x - P.pos.x, this.bodyPos(q).z - P.pos.z) <= ITEMS.flare.radius + 0.5);
+    // the wick burns bodies only: one that got up meanwhile is out of reach
+    const reach = (q) => q.burnable && Math.hypot(this.bodyPos(q).x - P.pos.x, this.bodyPos(q).z - P.pos.z) <= ITEMS.flare.radius + 0.5;
     if (!t || !reach(t)) t = this.flareTarget();
     if (!t) { audio.click(0, 420, 0.06); return; } // nothing left in reach: the cap stays on
     if (!this.inv.remove('flare', 1)) return;
     audio.flare(HOLLOW.burnT);
-    const b = t.alive ? t.pos : this.bodyPos(t);
+    const b = this.bodyPos(t);
     this.noise(b.x, b.z, NOISE.burn);
     this.particles.burst(new THREE.Vector3(b.x, 0.4, b.z), 0xffa030, 16, 2.2);
     this.particles.burst(new THREE.Vector3(b.x, 0.4, b.z), 0xfff0c0, 6, 1.4);
     this.glitchPulse = Math.max(this.glitchPulse, 0.12);
-    if (t.alive) t.ignite(ITEMS.flare.damage, Math.atan2(t.pos.x - P.pos.x, t.pos.z - P.pos.z), { x: P.pos.x, z: P.pos.z });
-    else t.burn();
+    t.burn();
     this.state.flags.burned = (this.state.flags.burned || 0) + 1;
     this.syncToolClass();
   }
@@ -1361,33 +1373,24 @@ export class Game {
       const t = this.flareTarget();
       if (!t) {
         this.controls.cursor.flashNo(); audio.click(0, 420, 0.06);
-        this.hint('flare-reach', 'The flare needs a body at her feet, or a Hollow in arm\'s reach');
+        this.hint('flare-reach', 'The wick needs a body on the floor at her feet');
         return;
       }
       this.startMech('flare', t);
     }
   }
 
-  // The flare's target: a standing Hollow in arm's reach ahead (it is the
-  // danger), else the nearest body she stands over.
+  // The wick's target: the nearest body on the floor she stands over. (It
+  // is a scuttling wick, not a weapon: a Hollow on its feet is no target.)
   flareTarget() {
-    const P = this.player, fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+    const P = this.player;
     let best = null, bs = Infinity;
     for (const e of this.enemies) {
-      if (!e.active) continue;
-      let score;
-      if (e.alive) {
-        const dx = e.pos.x - P.pos.x, dz = e.pos.z - P.pos.z, d = Math.hypot(dx, dz);
-        if (d > 1.6) continue;
-        if (d > 0.8 && (dx * fx + dz * fz) / d < 0.2) continue;
-        score = d - 2;
-      } else if (e.burnable) {
-        const b = this.bodyPos(e);
-        const d = Math.hypot(b.x - P.pos.x, b.z - P.pos.z);
-        if (d > ITEMS.flare.radius) continue;
-        score = d;
-      } else continue;
-      if (score < bs) { bs = score; best = e; }
+      if (!e.active || !e.burnable) continue;
+      const b = this.bodyPos(e);
+      const d = Math.hypot(b.x - P.pos.x, b.z - P.pos.z);
+      if (d > ITEMS.flare.radius) continue;
+      if (d < bs) { bs = d; best = e; }
     }
     return best;
   }
@@ -1401,7 +1404,7 @@ export class Game {
     const i = this.equippedSlot('tool');
     if (i == null) return null;
     const s = this.inv.slots[i];
-    return `${s.id === 'flare' ? 'FLARE' : s.id === 'prong' ? 'PRONG' : 'TOOL'} ×${s.qty}`;
+    return `${s.id === 'flare' ? 'WICK' : s.id === 'prong' ? 'SHUNT' : 'TOOL'} ×${s.qty}`;
   }
 
   // First-time notes as the revive economy shows itself.
@@ -1426,7 +1429,9 @@ export class Game {
     c.sector = (ROOMS[this.state.currentRoom] && ROOMS[this.state.currentRoom].sector) || '01';
     c.pos = P.pos;
     const u = R.update(dt, c);
-    if (playing && R.has && R.power) I.pressed.delete('KeyE');
+    // E tunes (and so doesn't interact) only from a real keyboard: a virtual
+    // E from the touch layer or a pad-mapped key still interacts
+    if (playing && R.has && R.power && I.lastDevice === 'kb') I.pressed.delete('KeyE');
     return u;
   }
 
@@ -1499,7 +1504,7 @@ export class Game {
         label: 'USE',
         fn: () => {
           if (P.hp >= P.maxHp) { this.ui.toast('INTEGRITY FULL — NOT USED'); return; }
-          // sealant sets over a few seconds (+40 over 8 s); the ampoule is at once
+          // splice wrap knits over a few seconds (+40 over 8 s); the ampoule is at once
           P.heal(def.heal, def.hot || 0);
           this.inv.remove(s.id, 1);
           audio.blip(440, 0.3, 'sine', 0.06); audio.blip(660, 0.4, 'sine', 0.05, 0.12);

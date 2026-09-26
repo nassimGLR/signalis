@@ -135,36 +135,32 @@ const BUILDERS = {
     return g;
   },
 
-  // Sealant: a squat pressure canister for hull patching — a valve block with
-  // a pressure gauge on top and a short applicator wand bent forward.
+  // SPLICE WRAP (id 'sealant'): a roll of self-fusing conductive tape on a
+  // paper core, standing on its edge, with a printed tail pulled loose.
   sealant() {
     const g = new THREE.Group();
-    const band = texCanvas(64, 32, (c, w, h) => {
-      c.fillStyle = '#cfc9ba'; c.fillRect(0, 0, w, h);
-      for (let i = -2; i < 18; i++) { c.fillStyle = '#e0c85a'; c.beginPath(); c.moveTo(i * 4, 0); c.lineTo(i * 4 + 2, 0); c.lineTo(i * 4 + 6, 6); c.lineTo(i * 4 + 4, 6); c.fill(); }
-      c.fillStyle = '#1c1a18'; c.fillRect(0, 6, w, 1);
-      txt(c, 'HULL SEALANT', 3, 17, 8, '#1c1a18', 'Sofia Sans Condensed, sans-serif', '800');
-      txt(c, 'ГЕРМЕТИК · 40', 3, 25, 6, '#3a3834');
-      c.fillStyle = '#b3141f'; c.fillRect(48, 11, 12, 14);
-      txt(c, 'L7', 49, 22, 8, '#f0ebe0', 'Sofia Sans Condensed, sans-serif', '800');
+    const ring = (r0, r1, w) => new THREE.LatheGeometry([
+      new THREE.Vector2(r0, -w / 2), new THREE.Vector2(r1, -w / 2), new THREE.Vector2(r1, w / 2),
+      new THREE.Vector2(r0, w / 2), new THREE.Vector2(r0, -w / 2)], 18);
+    const tape = lam(0x3b4f52), edge = lam(0x2b3a3c), core = lam(0xcfc9ba);
+    // the roll: turns of tape, a darker selvedge on each face, the paper core
+    const roll = new THREE.Group();
+    add(roll, ring(0.019, 0.036, 0.026), tape);
+    add(roll, ring(0.034, 0.0365, 0.0262), edge);
+    add(roll, ring(0.016, 0.019, 0.028), core);
+    roll.rotation.x = Math.PI / 2;
+    g.add(roll);
+    // the loose tail: printed with the maker's band
+    const tail = texCanvas(96, 24, (c, w, h) => {
+      c.fillStyle = '#3b4f52'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#e0c85a'; c.fillRect(0, 0, w, 3); c.fillRect(0, h - 3, w, 3);
+      txt(c, 'SPLICE WRAP', 4, 14, 9, '#e8e2d4', 'Sofia Sans Condensed, sans-serif', '800');
+      txt(c, 'ИЗОЛЕНТА · L7', 58, 13, 6, '#c9c3b4');
     });
-    band.wrapS = THREE.RepeatWrapping;
-    const gauge = texCanvas(16, 16, (c) => {
-      c.fillStyle = '#e8e2d4'; c.beginPath(); c.arc(8, 8, 8, 0, 7); c.fill();
-      c.strokeStyle = '#1c1a18'; c.lineWidth = 1; c.beginPath(); c.arc(8, 8, 6, Math.PI * 0.8, Math.PI * 2.2); c.stroke();
-      c.strokeStyle = '#b3141f'; c.beginPath(); c.moveTo(8, 8); c.lineTo(12, 4); c.stroke();
-    });
-    const body = mapMat(band), cap = lam(0xb9b3a4), metal = lam(C.steel), dark = lam(C.gunDark);
-    add(g, CY(0.031, 0.031, 0.078, 12), [body, cap, cap], 0, -0.01, 0);
-    add(g, new THREE.SphereGeometry(0.031, 12, 4, 0, Math.PI * 2, 0, Math.PI / 2), cap, 0, 0.029, 0);
-    add(g, CY(0.0315, 0.0315, 0.006, 12), dark, 0, -0.049, 0);                 // foot ring
-    add(g, B(0.022, 0.018, 0.02), metal, 0, 0.066, 0);                          // valve block
-    add(g, CY(0.009, 0.009, 0.006, 10), metal, 0, 0.066, 0.013, Math.PI / 2, 0, 0);
-    add(g, CY(0.0085, 0.0085, 0.001, 10), [mapMat(gauge), mapMat(gauge), mapMat(gauge)], 0, 0.066, 0.0165, Math.PI / 2, 0, 0);
-    add(g, CY(0.004, 0.004, 0.05, 6), dark, 0.03, 0.074, 0, 0, 0, Math.PI / 2 - 0.2); // wand
-    add(g, CY(0.0025, 0.005, 0.014, 6), lam(C.red), 0.058, 0.08, 0, 0, 0, Math.PI / 2 - 0.2); // tip
-    add(g, B(0.006, 0.02, 0.012), dark, -0.012, 0.08, 0, 0, 0, 0.5);            // lever
-    g.userData.view = { yaw: -0.35, pitch: 0.34 };
+    const tm = mapMat(tail, { side: THREE.DoubleSide });
+    add(g, new THREE.PlaneGeometry(0.075, 0.019), tm, 0.034, -0.037, 0, -Math.PI / 2, 0, -0.14);
+    add(g, new THREE.PlaneGeometry(0.012, 0.019), tm, 0.0, -0.036, 0, -Math.PI / 2, 0, 0);
+    g.userData.view = { yaw: -0.45, pitch: 0.3 };
     return g;
   },
 
@@ -265,7 +261,7 @@ const BUILDERS = {
     return g;
   },
 
-  // Obol: worn silver coin. A boat on one face; "FOR W." scratched on the other.
+  // Obol: worn silver coin. A boat on one face; the array stamp on the other.
   obol() {
     const g = new THREE.Group();
     const faceA = texCanvas(48, 48, (c) => {
@@ -281,7 +277,7 @@ const BUILDERS = {
       c.fillStyle = '#b2b5b6'; c.beginPath(); c.arc(24, 24, 24, 0, 7); c.fill();
       c.strokeStyle = '#8a8e90'; c.lineWidth = 2; c.beginPath(); c.arc(24, 24, 21, 0, 7); c.stroke();
       c.save(); c.translate(24, 26); c.rotate(-0.12);
-      txt(c, 'FOR W.', 0, 4, 13, '#55595c', "'L7 Hand', cursive", '400', 'center');
+      txt(c, 'ARRAY', 0, 4, 11, '#55595c', "'L7 Mono', monospace", '500', 'center');
       c.restore();
     });
     const rim = lam(0x8e9294);
@@ -290,39 +286,51 @@ const BUILDERS = {
     return g;
   },
 
-  // ARC PRONG: a two-tined contact stunner with a charge window.
+  // SHUNT CARTRIDGE (id 'prong'): a stubby breaker-shunt cartridge with a
+  // broad contact foot that is slammed down on the deck plate, a teal charge
+  // window and a red safety collar.
   prong() {
     const g = new THREE.Group();
-    const rubber = lam(C.rubber), body = lam(0x4d5155), metal = lam(C.steel);
+    const band = texCanvas(64, 32, (c, w, h) => {
+      c.fillStyle = '#4d5155'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#e8e2d4'; c.fillRect(0, 4, w, 11);
+      txt(c, 'SHUNT', 3, 13, 9, '#1c1a18', 'Sofia Sans Condensed, sans-serif', '800');
+      txt(c, 'ШУНТ', 34, 13, 7, '#3a3834');
+      txt(c, '1 DISCHARGE', 3, 25, 6, '#c9c3b4');
+    });
+    band.wrapS = THREE.RepeatWrapping;
+    const body = mapMat(band), top = lam(0x2e3236), metal = lam(C.steel);
     const glow = new THREE.MeshLambertMaterial({ color: C.teal, emissive: 0x2e7a80, flatShading: true });
-    add(g, CY(0.013, 0.015, 0.09, 8), rubber, -0.07, 0, 0, 0, 0, Math.PI / 2);
-    for (let i = 0; i < 4; i++) add(g, CY(0.0155, 0.0155, 0.004, 8), lam(0x2a2b2f), -0.1 + i * 0.02, 0, 0, 0, 0, Math.PI / 2);
-    add(g, B(0.06, 0.034, 0.03), body, 0.0, 0.002, 0);
-    add(g, B(0.03, 0.008, 0.031), glow, 0.0, 0.012, 0);
-    add(g, B(0.008, 0.006, 0.01), lam(C.red), -0.02, 0.021, 0);
-    add(g, B(0.05, 0.004, 0.004), metal, 0.055, 0.004, 0.009);
-    add(g, B(0.05, 0.004, 0.004), metal, 0.055, 0.004, -0.009);
-    add(g, B(0.006, 0.006, 0.006), glow, 0.081, 0.004, 0.009);
-    add(g, B(0.006, 0.006, 0.006), glow, 0.081, 0.004, -0.009);
-    g.userData.view = { yaw: -0.55, pitch: 0.35 };
+    add(g, CY(0.019, 0.019, 0.07, 10), [body, top, top], 0, 0.004, 0);
+    add(g, CY(0.021, 0.021, 0.01, 10), lam(C.red), 0, 0.044, 0);               // safety collar
+    add(g, CY(0.012, 0.016, 0.012, 10), top, 0, 0.055, 0);                      // striker cap
+    add(g, CY(0.032, 0.032, 0.006, 12), metal, 0, -0.034, 0);                   // contact foot
+    for (let i = 0; i < 3; i++) add(g, B(0.004, 0.004, 0.05), lam(C.brass), -0.016 + i * 0.016, -0.038, 0); // contact bars
+    add(g, B(0.012, 0.03, 0.004), glow, 0, 0.0, 0.018);                         // charge window
+    g.userData.view = { yaw: -0.5, pitch: 0.4 };
     return g;
   },
 
-  // CAUTERY FLARE: a grey casing with a sodium band, cap and pull ring.
+  // SCUTTLE WICK (id 'flare'): a paper-sleeved magnesium wick with a pull tab
+  // at one end and a twist of bare ribbon at the other.
   flare() {
     const g = new THREE.Group();
-    const band = texCanvas(64, 32, (c, w, h) => {
-      c.fillStyle = '#50555a'; c.fillRect(0, 0, w, h);
-      c.fillStyle = '#e0c85a'; c.fillRect(0, 8, w, 14);
-      txt(c, 'CAUTERY', 3, 19, 10, '#1c1a18', 'Sofia Sans Condensed, sans-serif', '800');
-      txt(c, 'ПРИЖИГАНИЕ', 34, 18, 6, '#1c1a18');
-      txt(c, 'DO NOT HOLD', 3, 29, 6, '#c9c3b4');
+    const sleeve = texCanvas(64, 32, (c, w, h) => {
+      c.fillStyle = '#c9bfa6'; c.fillRect(0, 0, w, h);
+      for (let i = 0; i < w; i += 6) { c.fillStyle = 'rgba(80,70,50,0.18)'; c.fillRect(i, 0, 2, h); }
+      c.fillStyle = '#e0862e'; c.fillRect(0, 20, w, 5);
+      txt(c, 'SCUTTLE', 3, 14, 9, '#1c1a18', 'Sofia Sans Condensed, sans-serif', '800');
+      txt(c, 'ПОДЖИГ', 40, 13, 6, '#3a3834');
+      txt(c, 'BURN 3 s', 3, 31, 6, '#3a3834');
     });
-    band.wrapS = THREE.RepeatWrapping;
-    const casing = mapMat(band), cap = lam(C.gunBlack), metal = lam(C.steel);
-    add(g, CY(0.014, 0.014, 0.15, 10), [casing, cap, cap], 0, 0, 0, 0, 0, Math.PI / 2);
-    add(g, CY(0.0155, 0.0155, 0.024, 10), cap, 0.085, 0, 0, 0, 0, Math.PI / 2);
-    add(g, new THREE.TorusGeometry(0.009, 0.0018, 4, 10), metal, -0.086, 0, 0, 0, Math.PI / 2, 0);
+    sleeve.wrapS = THREE.RepeatWrapping;
+    const paper = mapMat(sleeve), end = lam(0x8f8b80), ribbon = lam(0xb9bcbe);
+    add(g, CY(0.009, 0.009, 0.13, 8), [paper, end, end], 0, 0, 0, 0, 0, Math.PI / 2);
+    // bare ribbon, twisted, poking out of the far end
+    for (let i = 0; i < 4; i++) add(g, B(0.012, 0.0015, 0.007), ribbon, 0.071 + i * 0.01, 0, 0, i * 0.5, 0, 0);
+    // pull tab
+    add(g, B(0.012, 0.002, 0.014), lam(C.red), -0.071, 0, 0);
+    add(g, new THREE.TorusGeometry(0.008, 0.0016, 4, 10), lam(C.steel), -0.084, 0, 0, Math.PI / 2, 0, 0);
     g.userData.view = { yaw: -0.4, pitch: 0.4 };
     return g;
   },

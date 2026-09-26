@@ -1,6 +1,7 @@
 // On-screen controls for touch devices: a virtual stick on the left and an
 // action cluster on the right. They press the same virtual keys as the
-// keyboard (plan §3.5): FIRE → KeyJ, ACT → KeyE, TOOL → KeyC.
+// keyboard (plan §3.5): FIRE → KeyJ, ACT → KeyF, TOOL → KeyC. ACT is F, not
+// E: E also tunes the receiver while it is on, and F only ever interacts.
 export function installTouch(input) {
   const root = document.createElement('div');
   root.id = 'touch';
@@ -17,7 +18,7 @@ export function installTouch(input) {
       <button class="t-btn" data-code="ShiftLeft" data-hold="1">RUN</button>
       <button class="t-btn aim" data-code="Space" data-hold="1">AIM</button>
       <button class="t-btn fire" data-code="KeyJ">FIRE</button>
-      <button class="t-btn act" data-code="KeyE">ACT</button>
+      <button class="t-btn act" data-code="KeyF">ACT</button>
     </div>`;
   document.body.appendChild(root);
 
