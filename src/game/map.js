@@ -334,7 +334,7 @@ export const PICKUPS = [
   { id: 'p_letter_D', room: 'D', x: 21.2, z: 26.4, y: 0.78, file: 'letter' },
   { id: 'p_bulletin_H', room: 'H', x: 32.2, z: 22.8, y: 0.8, file: 'bulletin' },
   { id: 'p_rx_H', room: 'H', x: 34.2, z: 22.75, y: 0.8, module: 'receiver' },
-  { id: 'p_ammo_H', room: 'H', x: 36.3, z: 28.3, y: 0.72, item: 'ammo', qty: 4 },
+  { id: 'p_ammo_H', room: 'H', x: 35.5, z: 28.45, item: 'ammo', qty: 4 },
   { id: 'p_flare_H', room: 'H', x: 36.0, z: 24.4, item: 'flare', qty: 1 },
   { id: 'p_ammo_E', room: 'E', x: 28.4, z: 34.6, y: 1.0, item: 'ammo', qty: 6 },
   { id: 'p_nanite_E', room: 'E', x: 28.2, z: 41.3, item: 'nanite', qty: 1 },
